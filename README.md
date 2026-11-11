@@ -13,6 +13,10 @@ options, press **Apply**. No config files to edit.
 
 It sets up Hyprland (Lua config), Waybar, wofi, mako, hyprlock and, on laptops, hypridle.
 
+![A desktop riced with hAckDHD's theme: transparent bar with green and purple pills](docs/screenshots/desktop.png)
+
+*hAckDHD's own desktop: hAckDHD's theme with a personal wallpaper. Themes ship colours and style; the wallpaper is yours to pick.*
+
 ![Theme tab: pick a theme or build your own, with a live preview](docs/screenshots/theme.png)
 
 <details>
