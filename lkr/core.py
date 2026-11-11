@@ -62,6 +62,18 @@ ROLES = {
     "calculator": ("Calculator", "Calculator key", {"Calculator"}),
     "monitor": ("Task manager", "Ctrl+Shift+Esc", {"Monitor"}),
 }
+# Common apps per role, as (name, apt package). The package name is also the command.
+CATALOG = {
+    "terminal": [("Kitty", "kitty"), ("Alacritty", "alacritty"), ("Foot", "foot"), ("QTerminal", "qterminal"),
+                 ("Xfce Terminal", "xfce4-terminal"), ("Konsole", "konsole")],
+    "browser": [("Firefox ESR", "firefox-esr"), ("Chromium", "chromium")],
+    "files": [("Thunar", "thunar"), ("Nemo", "nemo"), ("PCManFM", "pcmanfm"), ("Dolphin", "dolphin"), ("Files (Nautilus)", "nautilus")],
+    "music": [("VLC", "vlc"), ("mpv", "mpv"), ("Rhythmbox", "rhythmbox"), ("Audacious", "audacious"), ("Strawberry", "strawberry")],
+    "calculator": [("Galculator", "galculator"), ("GNOME Calculator", "gnome-calculator"), ("Qalculate!", "qalculate-gtk"),
+                   ("MATE Calculator", "mate-calc")],
+    "monitor": [("Xfce Task Manager", "xfce4-taskmanager"), ("GNOME System Monitor", "gnome-system-monitor"),
+                ("MATE System Monitor", "mate-system-monitor"), ("LXTask", "lxtask")],
+}
 NEEDED = ["Hyprland", "waybar", "wofi", "mako", "swaybg", "hyprlock", "cliphist", "wl-paste", "grim", "slurp", "jq"]
 
 
@@ -81,7 +93,7 @@ def detect_apps():
 
     found = {role: [] for role in ROLES}
     for info in Gio.AppInfo.get_all():
-        if not info.should_show():
+        if info.get_nodisplay():
             continue
         cats = set((info.get_categories() or "").split(";"))
         cmd = _clean_exec(info.get_commandline() or "")
@@ -90,6 +102,9 @@ def detect_apps():
         for role, (_label, _keys, want) in ROLES.items():
             if cats & want and cmd not in [c for _n, c in found[role]]:
                 found[role].append((info.get_name(), cmd))
+    for role, common in CATALOG.items():  # installed common apps whose launcher entry lacks the category
+        known = {os.path.basename(shlex.split(c)[0]) for _n, c in found[role]}
+        found[role] += [(name, cmd) for name, cmd in common if cmd not in known and shutil.which(cmd)]
     for apps in found.values():
         apps.sort(key=lambda a: a[0].lower())
     music = {c for i in Gio.AppInfo.get_all() if "Music" in (i.get_categories() or "").split(";")
@@ -116,6 +131,7 @@ def default_apps(found):
         cmds = [c for _n, c in choices]
         default = _system_default(role)
         match = [c for c in cmds if c == default or os.path.basename(shlex.split(c)[0]) == default]
+        match = match or [c for c in cmds if c in dict(CATALOG[role]).values()]  # else a well-known app
         apps[role] = (match or cmds or [""])[0]
     apps["screenshot"] = "flameshot" if shutil.which("flameshot") else "grim"
     return apps
@@ -146,9 +162,39 @@ def hardware():
     return "%s CPU, %s graphics, %s" % (cpu, " + ".join(gpus), "laptop" if laptop else "desktop")
 
 
+def catalog_state():
+    """{package: "installed" | "available" | "missing"} for every catalog package."""
+    packages = [pkg for common in CATALOG.values() for _name, pkg in common]
+    state, name = dict.fromkeys(packages, "missing"), None
+    for line in _quiet("apt-cache", "policy", *packages).splitlines():
+        if not line.startswith(" "):
+            name = line.rstrip(":")
+        elif line.strip().startswith("Installed:") and "(none)" not in line:
+            state[name] = "installed"
+        elif line.strip().startswith("Candidate:") and "(none)" not in line and state.get(name) == "missing":
+            state[name] = "available"
+    return state
+
+
+def _apt(action, packages):
+    """apt-get install/remove with an admin prompt: sudo in a terminal, a polkit dialog otherwise."""
+    return subprocess.run(["sudo" if sys.stdin.isatty() else "pkexec", "apt-get", action, "-y", *packages]).returncode == 0
+
+
+def install_packages(packages):
+    """Install apps picked in the GUI and remember them, so uninstall can offer to remove them."""
+    if not _apt("install", packages):
+        return False
+    os.makedirs(OWN, exist_ok=True)
+    with open(PACKAGES, "a") as f:
+        f.write("".join("\n%s" % p for p in packages))
+    return True
+
+
 # ---------- settings ----------
 def defaults():
     s = dict(THEMES[DEFAULT_THEME], theme=DEFAULT_THEME, wallpaper_mode="color", wallpaper_image="",
+             wallpaper_dir="", wallpaper_minutes=10,
              clip_enabled=True, clip_max=200, clip_images=True, clip_skip_sensitive=False, clip_wipe_login=False,
              keys_on_login=True, debug=False, kb_layout=detect_kb_layout())
     s["apps"] = default_apps(detect_apps())
@@ -199,7 +245,16 @@ def effect_colours(s):
 
 
 # ---------- commands started with the session ----------
+def _rotate_cmd(s):
+    """Command that shows the next image of the rotation folder; "" when rotation is off."""
+    if s["wallpaper_mode"] != "rotate" or not os.path.isdir(s["wallpaper_dir"]):
+        return ""
+    return "%s %s" % (shlex.quote(os.path.join(CFG, "hypr", "scripts", "wallpaper-rotate.sh")), shlex.quote(s["wallpaper_dir"]))
+
+
 def wallpaper_cmds(s):
+    if _rotate_cmd(s):  # with 0 minutes it shows one image and waits for the key
+        return ["%s %d" % (_rotate_cmd(s), int(s["wallpaper_minutes"]) * 60)]
     if s["wallpaper_mode"] == "image" and os.path.isfile(s["wallpaper_image"]):
         return ["swaybg -i %s -m fill" % shlex.quote(s["wallpaper_image"])]
     return ["swaybg -c %s" % shlex.quote(s["wallpaper_color"])]
@@ -262,6 +317,7 @@ def settings_lua(s):
         "gaps_out": int(s["gaps_out"]),
         "glow": {"enabled": bool(s["glow"]), "color": _rgba(s["primary"], "66")},
         "clipboard": bool(s["clip_enabled"]),
+        "wallpaper_next": _rotate_cmd(s),
         "autostart": wallpaper_cmds(s) + clipboard_cmds(s) + debug_cmds(s),
     }
     return "-- Written by lazy-kali-ricer. Change these in the GUI (or here, then `hyprctl reload`).\nreturn %s\n" % _lua(table)
@@ -270,6 +326,8 @@ def settings_lua(s):
 def hyprlock_conf(s):
     if s["wallpaper_mode"] == "image" and os.path.isfile(s["wallpaper_image"]):
         background = "path = %s\n    blur_passes = 2" % s["wallpaper_image"]
+    elif _rotate_cmd(s):  # whatever image is up at that moment, blurred
+        background = "path = screenshot\n    blur_passes = 3"
     else:
         background = "color = rgb(%s)" % s["wallpaper_color"].lstrip("#")
     return """# Written by lazy-kali-ricer.
@@ -394,6 +452,7 @@ def _quiet(*cmd):
 def reload_session(s):
     _quiet("hyprctl", "reload")
     _quiet("makoctl", "reload")
+    _quiet("pkill", "-f", "wallpaper-rotate.sh")
     for name in ("waybar", "swaybg"):
         _quiet("pkill", "-x", name)
     _quiet("pkill", "-f", "wl-paste .*--watch")
@@ -461,7 +520,7 @@ def uninstall(items):
     """Carry out the chosen steps. Returns log lines."""
     log, managed_gone, packages = [], set(), [i["target"] for i in items if i["kind"] == "package"]
     if packages:  # first: it needs the admin password and the package list file
-        ok = subprocess.run(["sudo" if sys.stdin.isatty() else "pkexec", "apt-get", "remove", "-y", *packages]).returncode == 0
+        ok = _apt("remove", packages)
         log.append(("Removed packages: %s" if ok else "Packages NOT removed (cancelled or failed): %s") % " ".join(packages))
         if ok:
             with open(PACKAGES) as f:

@@ -2,6 +2,7 @@
 import math
 import os
 import shutil
+import threading
 
 import gi
 
@@ -37,7 +38,7 @@ class Ricer(Gtk.Window):
         self.add(outer)
         book = Gtk.Notebook()
         outer.pack_start(book, True, True, 0)
-        for title, build in (("Apps", self.page_apps), ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
+        for title, build in (("Apps", self.page_apps), ("Get apps", self.page_get_apps), ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
                              ("Clipboard", self.page_clipboard), ("Debug", self.page_debug),
                              ("Uninstall", self.page_uninstall)):
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=14)
@@ -86,22 +87,16 @@ class Ricer(Gtk.Window):
     def page_apps(self, page):
         self.note(page, "Programs found on this system. Each one gets the key shown on the right. "
                         "Choose \"Custom command\" to type your own, or \"None\" to leave the key unbound.")
-        found = core.detect_apps()
         g = self.grid(page)
+        self.app_rows = {}  # role -> (combo, entry)
         for n, (role, (label, keys, _cats)) in enumerate(core.ROLES.items()):
             combo = Gtk.ComboBoxText(hexpand=True)
-            for name, cmd in found[role]:
-                combo.append(cmd, name)
-            combo.append(NONE, "None")
-            combo.append(CUSTOM_CMD, "Custom command…")
             entry = Gtk.Entry(placeholder_text="command to run", width_chars=24)
-            current = self.s["apps"].get(role, "")
-            if not combo.set_active_id(current):
-                combo.set_active_id(CUSTOM_CMD)
-            entry.set_text(current)
-            entry.set_sensitive(combo.get_active_id() == CUSTOM_CMD)
+            self.app_rows[role] = (combo, entry)
 
             def changed(_w, role=role, combo=combo, entry=entry):
+                if self.loading:
+                    return
                 custom = combo.get_active_id() == CUSTOM_CMD
                 entry.set_sensitive(custom)
                 if not custom:
@@ -114,6 +109,11 @@ class Ricer(Gtk.Window):
             box.pack_start(combo, True, True, 0)
             box.pack_start(entry, True, True, 0)
             self.row(g, n, label, box, keys)
+        self.known = None  # commands seen by the last scan
+        self.fill_apps()
+        again = Gtk.Button(label="Rediscover installed programs", halign=Gtk.Align.START)
+        again.connect("clicked", lambda *_: self.fill_apps())
+        page.pack_start(again, False, False, 0)
 
         n = len(core.ROLES)
         shot = Gtk.ComboBoxText()
@@ -128,6 +128,74 @@ class Ricer(Gtk.Window):
         kb.connect("changed", lambda w: self.s.__setitem__("kb_layout", w.get_text().strip() or "us"))
         self.row(g, n + 1, "Keyboard layout", kb, "XKB code: us, gb, de, us,ru …")
         self.check(page, "Show the shortcuts list every time I log in (Super+K opens it any time)", "keys_on_login")
+
+    def fill_apps(self):
+        """Scan for installed programs and refill the lists, keeping each current choice."""
+        found = core.detect_apps()
+        was, self.loading = self.loading, True
+        for role, (combo, entry) in self.app_rows.items():
+            combo.remove_all()
+            for name, cmd in found[role]:
+                combo.append(cmd, name)
+            combo.append(NONE, "None")
+            combo.append(CUSTOM_CMD, "Custom command…")
+            current = self.s["apps"].get(role, "")
+            if not combo.set_active_id(current):
+                combo.set_active_id(CUSTOM_CMD)
+            entry.set_text(current)
+            entry.set_sensitive(combo.get_active_id() == CUSTOM_CMD)
+        self.loading = was
+        names = {cmd: name for apps in found.values() for name, cmd in apps}
+        if self.known is not None:
+            new = sorted(names[c] for c in set(names) - self.known)
+            self.status.set_text("Found %d programs. New: %s." % (len(names), ", ".join(new) if new else "none"))
+        self.known = set(names)
+
+    # ----- Get apps -----
+    def page_get_apps(self, page):
+        self.note(page, "Common programs for each job. Tick the ones you want and install them; "
+                        "they then show up in the Apps tab. Already installed ones are greyed out.")
+        self.catalog = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        page.pack_start(self.catalog, False, False, 0)
+        self.get_button = Gtk.Button(label="Install ticked apps", halign=Gtk.Align.START)
+        self.get_button.connect("clicked", self.on_get_apps)
+        page.pack_start(self.get_button, False, False, 0)
+        self.list_catalog()
+
+    def list_catalog(self):
+        for child in self.catalog.get_children():
+            self.catalog.remove(child)
+        state, self.wanted = core.catalog_state(), []  # (checkbox, package)
+        for role, common in core.CATALOG.items():
+            head = Gtk.Label(label=core.ROLES[role][0], xalign=0)
+            head.get_style_context().add_class("heading")
+            self.catalog.pack_start(head, False, False, 0)
+            line = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6)
+            for name, pkg in common:
+                if state[pkg] == "missing":  # not in this system's package sources
+                    continue
+                box = Gtk.CheckButton(label=name + ("  ✓" if state[pkg] == "installed" else ""))
+                box.set_sensitive(state[pkg] == "available")
+                self.wanted.append((box, pkg))
+                line.add(box)
+            self.catalog.pack_start(line, False, False, 0)
+        self.catalog.show_all()
+
+    def on_get_apps(self, _button):
+        packages = [pkg for box, pkg in self.wanted if box.get_active()]
+        if not packages:
+            return
+        self.get_button.set_sensitive(False)
+        self.status.set_text("Installing %s … (enter your password in the dialog)" % ", ".join(packages))
+
+        def done(ok):
+            self.get_button.set_sensitive(True)
+            self.list_catalog()
+            self.fill_apps()
+            if not ok:
+                self.status.set_text("Install cancelled or failed: %s" % ", ".join(packages))
+
+        threading.Thread(target=lambda: GLib.idle_add(done, core.install_packages(packages)), daemon=True).start()
 
     # ----- Theme -----
     def page_theme(self, page):
@@ -265,8 +333,10 @@ class Ricer(Gtk.Window):
         g = self.grid(page)
         solid = Gtk.RadioButton.new_with_label(None, "Solid colour")
         image = Gtk.RadioButton.new_with_label_from_widget(solid, "Image")
-        image.set_active(self.s["wallpaper_mode"] == "image")
-        solid.connect("toggled", lambda w: self.s.__setitem__("wallpaper_mode", "color" if w.get_active() else "image"))
+        rotate = Gtk.RadioButton.new_with_label_from_widget(solid, "Rotate images from a folder")
+        for mode, radio in (("color", solid), ("image", image), ("rotate", rotate)):
+            radio.set_active(self.s["wallpaper_mode"] == mode)
+            radio.connect("toggled", lambda w, mode=mode: w.get_active() and self.s.__setitem__("wallpaper_mode", mode))
 
         self.wall_colour = Gtk.ColorButton(use_alpha=False, rgba=to_rgba(self.s["wallpaper_color"]))
         self.wall_colour.connect("notify::rgba", self.on_wall_colour)
@@ -285,6 +355,29 @@ class Ricer(Gtk.Window):
             chooser.set_current_folder(pictures)
         self.row(g, 1, "", image)
         g.attach(chooser, 2, 1, 1, 1)
+
+        folder = Gtk.FileChooserButton(title="Choose a folder of wallpapers", action=Gtk.FileChooserAction.SELECT_FOLDER)
+        if os.path.isdir(self.s["wallpaper_dir"]):
+            folder.set_filename(self.s["wallpaper_dir"])
+        elif pictures:
+            folder.set_current_folder(pictures)
+
+        def folder_picked(w):
+            self.s["wallpaper_dir"] = w.get_filename() or ""
+            rotate.set_active(True)
+
+        folder.connect("file-set", folder_picked)
+        self.row(g, 2, "", rotate)
+        g.attach(folder, 2, 2, 1, 1)
+        minutes = Gtk.SpinButton.new_with_range(0, 1440, 1)
+        minutes.set_value(self.s["wallpaper_minutes"])
+        minutes.connect("value-changed", lambda w: self.s.__setitem__("wallpaper_minutes", w.get_value_as_int()))
+        every = Gtk.Box(spacing=8)
+        every.pack_start(minutes, False, False, 0)
+        every.pack_start(Gtk.Label(label="minutes between images (0 = only when I press the key)"), False, False, 0)
+        self.row(g, 3, "    Change every", every)
+        self.note(page, "Rotation uses the .png and .jpg files in the folder, in name order. "
+                        "Super+Shift+W shows the next one at any time.")
 
         self.thumb = Gtk.Image()
         page.pack_start(self.thumb, True, True, 0)

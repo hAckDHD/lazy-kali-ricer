@@ -5,7 +5,8 @@ options, press **Apply**. No config files to edit.
 
 - **Finds your programs.** Terminal, browser, file manager, music player: pick from what is installed.
 - **Themes.** Six ready ones, or build your own: outline colour, thickness and animated effects.
-- **Your wallpaper.** Any image, or a plain colour. The lock screen matches.
+- **Get more apps.** Tick common terminals, browsers, file managers and players to install them.
+- **Your wallpaper.** One image, a plain colour, or a folder that rotates on a timer or a key.
 - **Adapts to the machine.** Laptop or desktop, AMD or Intel CPU, AMD, NVIDIA or Intel graphics.
 - **Safe to try.** Existing configs are backed up before anything is written.
 - **Shortcut list.** Opens at login until you tell it not to; Super+K any time.
@@ -30,9 +31,10 @@ Needs a Hyprland build with Lua config support (Kali's `hyprland` package has it
 
 | Tab | What you choose |
 |-----|-----------------|
-| **Apps** | Terminal, browser, file manager, music, calculator, task manager. The lists show what is installed on your system (Flatpaks included). You can type a custom command or pick None. Also the screenshot tool (Flameshot or grim + slurp), keyboard layout, and whether the shortcut list opens at login. |
+| **Apps** | Terminal, browser, file manager, music, calculator, task manager. The lists show what is installed on your system (Flatpaks included); "Rediscover installed programs" rescans after you install something. You can type a custom command or pick None. Also the screenshot tool (Flameshot or grim + slurp), keyboard layout, and whether the shortcut list opens at login. |
+| **Get apps** | Common programs for each job (Kitty, Alacritty, Nemo, mpv …). Tick, install, and they appear in the Apps tab. |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. |
-| **Wallpaper** | A solid colour or any image of yours. Also used on the lock screen. |
+| **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
 | **Debug** | Logging switch and a button that saves a report. |
 | **Uninstall** | Every change it made, one line each. Untick what you want to keep. |
@@ -53,6 +55,16 @@ Add your own in `THEMES` in `lkr/core.py`.
 | Chasing light | One band of light runs around the edge |
 | Dual chase | A primary and an accent band chase each other |
 | RGB rainbow | The full spectrum, rotating |
+
+### Wallpaper rotation
+
+Pick "Rotate images from a folder" and a folder of `.png` / `.jpg` files. They show in
+name order and wrap around.
+
+- **Timer:** set the minutes between images. 0 turns the timer off.
+- **Key:** Super+Shift+W shows the next image at any time.
+
+The lock screen then shows a blurred copy of whatever is on screen.
 
 ### Clipboard privacy
 
@@ -102,7 +114,7 @@ list of everything it would undo, and you decide line by line:
   deleted if there was none;
 - the `lazy-kali-ricer` command, saved settings, debug logs;
 - clipboard history (unticked by default);
-- each package `install.sh` added (unticked by default; asks for your password).
+- each package `install.sh` or the Get apps tab added (unticked by default; asks for your password).
 
 Nothing is removed until you confirm. Packages that were already on your system before
 `install.sh` ran are never offered.
@@ -133,6 +145,7 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | Super+M | Minimize; the bar counts minimized windows, click the count to restore one |
 | Super+O | Float / un-float the window |
 | Super+T | Tighten / loosen gaps |
+| Super+Shift+W | Next wallpaper (when rotation is on) |
 | Super+W | Close window |
 | Super+L | Lock |
 

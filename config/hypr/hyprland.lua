@@ -200,6 +200,9 @@ if S.clipboard then
     bind("SUPER + V",           exec(menus .. " clipboard"), "Clipboard history (with image previews)")
     bind("SUPER + SHIFT + V",   exec(menus .. " clipboard"), "Clipboard history (with image previews)")
 end
+if S.wallpaper_next ~= "" then
+    bind("SUPER + SHIFT + W",   exec(S.wallpaper_next),      "Next wallpaper")
+end
 bind("CTRL + ALT + Escape",     exec("hyprctl kill"),        "Kill a window by clicking it")
 bind("CTRL + ALT + Delete",     hl.dsp.exit(),               "Log out of Hyprland")
 
