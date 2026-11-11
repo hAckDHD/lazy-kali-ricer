@@ -38,7 +38,8 @@ class Ricer(Gtk.Window):
         book = Gtk.Notebook()
         outer.pack_start(book, True, True, 0)
         for title, build in (("Apps", self.page_apps), ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
-                             ("Clipboard", self.page_clipboard), ("Debug", self.page_debug)):
+                             ("Clipboard", self.page_clipboard), ("Debug", self.page_debug),
+                             ("Uninstall", self.page_uninstall)):
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=14)
             build(page)
             book.append_page(page, Gtk.Label(label=title))
@@ -53,6 +54,7 @@ class Ricer(Gtk.Window):
         bottom.pack_start(self.status, True, True, 0)
         bottom.pack_end(apply_btn, False, False, 0)
         outer.pack_start(bottom, False, False, 0)
+        book.connect("switch-page", lambda *_: self.list_uninstall())  # the list changes after an Apply
         self.loading = False
 
     # ----- small builders -----
@@ -336,6 +338,49 @@ class Ricer(Gtk.Window):
         report = Gtk.Button(label="Save debug report", halign=Gtk.Align.START)
         report.connect("clicked", lambda *_: self.status.set_text("Report saved: " + core.debug_report()))
         page.pack_start(report, False, False, 0)
+
+    # ----- Uninstall -----
+    def page_uninstall(self, page):
+        self.note(page, "Everything lazy-kali-ricer changed on this system. Untick a line to keep it. "
+                        "Nothing is removed until you press the button. Packages and clipboard history "
+                        "start unticked because other programs, or you, may still want them.")
+        self.undo_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.add(self.undo_list)
+        page.pack_start(scroll, True, True, 0)
+        button = Gtk.Button(label="Uninstall ticked items", halign=Gtk.Align.START)
+        button.get_style_context().add_class("destructive-action")
+        button.connect("clicked", self.on_uninstall)
+        page.pack_start(button, False, False, 0)
+        self.list_uninstall()
+
+    def list_uninstall(self):
+        for child in self.undo_list.get_children():
+            self.undo_list.remove(child)
+        self.undo = []  # (checkbox, item)
+        for item in core.uninstall_items():
+            box = Gtk.CheckButton(label=item["label"], active=item["on"])
+            self.undo.append((box, item))
+            self.undo_list.pack_start(box, False, False, 0)
+        if not self.undo:
+            self.undo_list.pack_start(Gtk.Label(label="Nothing installed yet.", xalign=0), False, False, 0)
+        self.undo_list.show_all()
+
+    def on_uninstall(self, _button):
+        chosen = [item for box, item in self.undo if box.get_active()]
+        if not chosen:
+            return
+        ask = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
+                                buttons=Gtk.ButtonsType.OK_CANCEL, text="Carry out these %d steps?" % len(chosen))
+        ask.format_secondary_text("\n".join(item["label"] for item in chosen))
+        go = ask.run() == Gtk.ResponseType.OK
+        ask.destroy()
+        if go:
+            try:
+                self.status.set_text("\n".join(core.uninstall(chosen)[-4:]))
+            except OSError as e:
+                self.status.set_text("Failed: %s" % e)
+            self.list_uninstall()
 
     # ----- Apply -----
     def on_apply(self, _button):

@@ -6,6 +6,7 @@
   lazy-kali-ricer debug on        Mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log.
   lazy-kali-ricer debug off       Stop mirroring.
   lazy-kali-ricer debug report    Save a shareable report (versions, settings, config errors, log tail).
+  lazy-kali-ricer uninstall       List every change it would undo and ask about each one.
 """
 import os
 import sys
@@ -24,5 +25,18 @@ elif args in (["debug", "on"], ["debug", "off"]):
     print("Debug logging on: %s" % core.DEBUG_LOG if on else "Debug logging off.")
 elif args == ["debug", "report"]:
     print("Report saved: %s\nRead it before you share it." % core.debug_report())
+elif args == ["uninstall"]:
+    items = core.uninstall_items()
+    chosen = []
+    for item in items:
+        answer = input("%s? [%s] " % (item["label"], "Y/n" if item["on"] else "y/N")).strip().lower()
+        if answer in ("y", "yes") or (not answer and item["on"]):
+            chosen.append(item)
+    if not items:
+        print("Nothing to uninstall.")
+    elif chosen and input("Carry out %d of %d steps? [y/N] " % (len(chosen), len(items))).strip().lower() in ("y", "yes"):
+        print("\n".join(core.uninstall(chosen)))
+    else:
+        print("Nothing changed.")
 else:
     sys.exit(__doc__)

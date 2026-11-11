@@ -35,6 +35,7 @@ Needs a Hyprland build with Lua config support (Kali's `hyprland` package has it
 | **Wallpaper** | A solid colour or any image of yours. Also used on the lock screen. |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
 | **Debug** | Logging switch and a button that saves a report. |
+| **Uninstall** | Every change it made, one line each. Untick what you want to keep. |
 
 ### Themes
 
@@ -89,7 +90,22 @@ lazy-kali-ricer apply           write the configs from the saved settings
 lazy-kali-ricer debug on        mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log
 lazy-kali-ricer debug off       stop mirroring
 lazy-kali-ricer debug report    save ~/.cache/lazy-kali-ricer/debug-report.txt
+lazy-kali-ricer uninstall       list every change and ask about each one
 ```
+
+## Uninstall
+
+Open the **Uninstall** tab, or run `lazy-kali-ricer uninstall` in a terminal. You get a
+list of everything it would undo, and you decide line by line:
+
+- each config file it wrote: your original is restored from its backup, or the file is
+  deleted if there was none;
+- the `lazy-kali-ricer` command, saved settings, debug logs;
+- clipboard history (unticked by default);
+- each package `install.sh` added (unticked by default; asks for your password).
+
+Nothing is removed until you confirm. Packages that were already on your system before
+`install.sh` ran are never offered.
 
 ## Something broke?
 

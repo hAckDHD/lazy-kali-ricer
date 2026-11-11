@@ -9,6 +9,7 @@ import shlex
 import shutil
 import socket
 import subprocess
+import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -18,6 +19,8 @@ CFG = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
 OWN = os.path.join(CFG, "lazy-kali-ricer")
 SETTINGS = os.path.join(OWN, "settings.json")
 MANIFEST = os.path.join(OWN, "manifest.json")  # files we wrote; anything else gets backed up first
+PACKAGES = os.path.join(OWN, "installed-packages")  # packages install.sh added, one per line
+COMMAND = os.path.join(HOME, ".local", "bin", "lazy-kali-ricer")
 CACHE = os.path.join(HOME, ".cache", "lazy-kali-ricer")
 DEBUG_LOG = os.path.join(CACHE, "hyprland.log")
 THUMBS = os.path.join(HOME, ".cache", "cliphist-thumbs")
@@ -304,8 +307,10 @@ def _write(path, text, mode, managed, stamp):
 
 
 def _flameshot(s):
-    """Wayland-safe capture settings and theme colour, keeping the user's other options."""
+    """Wayland-safe capture settings and theme colour, keeping the user's other options.
+    Returns the file's path when it did not exist before (then uninstall may delete it)."""
     path = os.path.join(CFG, "flameshot", "flameshot.ini")
+    created = not os.path.exists(path)
     ini = configparser.RawConfigParser()
     ini.optionxform = str
     ini.read(path)
@@ -318,6 +323,7 @@ def _flameshot(s):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         ini.write(f, space_around_delimiters=False)
+    return path if created else None
 
 
 def apply(s):
@@ -355,8 +361,9 @@ def apply(s):
     old_bar = os.path.join(CFG, "waybar", "config")  # old-style file confuses waybar if both exist
     if os.path.lexists(old_bar):
         os.rename(old_bar, "%s.bak-%s" % (old_bar, stamp))
+        managed.add(old_bar)  # so uninstall puts it back
     if s["apps"]["screenshot"] == "flameshot":
-        _flameshot(s)
+        managed.update(filter(None, [_flameshot(s)]))
     with open(MANIFEST, "w") as f:
         json.dump(sorted(managed), f, indent=2)
     log.append("Wrote %d config files to %s" % (len(files), CFG.replace(HOME, "~")))
@@ -398,6 +405,92 @@ def reload_session(s):
 def wipe_clipboard():
     _quiet("cliphist", "wipe")
     shutil.rmtree(THUMBS, ignore_errors=True)
+
+
+# ---------- uninstall ----------
+def _original(path):
+    """The oldest backup of a config file: what was there before the first Apply."""
+    folder, name = os.path.split(path)
+    try:
+        backups = sorted(n for n in os.listdir(folder) if n.startswith(name + ".bak-"))
+    except OSError:
+        backups = []
+    return os.path.join(folder, backups[0]) if backups else None
+
+
+def uninstall_items():
+    """Everything uninstall can undo, one dict per step: kind, target, label, on (default).
+    Config files and our own data are on; packages and clipboard history are off,
+    because other programs or you may still want them."""
+    short = lambda p: p.replace(HOME, "~")
+    items = []
+    try:
+        with open(MANIFEST) as f:
+            managed = json.load(f)
+    except (OSError, ValueError):
+        managed = []
+    for path in managed:
+        backup = _original(path)
+        if backup:
+            label = "Restore %s  (from %s)" % (short(path), os.path.basename(backup))
+        elif os.path.lexists(path):
+            label = "Delete %s" % short(path)
+        else:
+            continue
+        items.append(dict(kind="file", target=path, label=label, on=True))
+    if os.path.islink(COMMAND) and os.path.realpath(COMMAND).startswith(REPO):
+        items.append(dict(kind="path", target=COMMAND, label="Delete the command %s" % short(COMMAND), on=True))
+    if os.path.isdir(CACHE):
+        items.append(dict(kind="path", target=CACHE, label="Delete debug logs and reports in %s" % short(CACHE), on=True))
+    if os.path.isdir(OWN):
+        items.append(dict(kind="path", target=OWN, label="Delete saved settings in %s" % short(OWN), on=True))
+    if os.path.isdir(os.path.join(HOME, ".cache", "cliphist")):
+        items.append(dict(kind="clipboard", target="", label="Wipe clipboard history", on=False))
+    try:
+        with open(PACKAGES) as f:
+            packages = f.read().split()
+    except OSError:
+        packages = []
+    for name in packages:
+        if _quiet("dpkg-query", "-W", "-f=${Status}", name).endswith(" installed"):
+            items.append(dict(kind="package", target=name, label="Remove package %s  (installed by install.sh)" % name, on=False))
+    return items
+
+
+def uninstall(items):
+    """Carry out the chosen steps. Returns log lines."""
+    log, managed_gone, packages = [], set(), [i["target"] for i in items if i["kind"] == "package"]
+    if packages:  # first: it needs the admin password and the package list file
+        ok = subprocess.run(["sudo" if sys.stdin.isatty() else "pkexec", "apt-get", "remove", "-y", *packages]).returncode == 0
+        log.append(("Removed packages: %s" if ok else "Packages NOT removed (cancelled or failed): %s") % " ".join(packages))
+        if ok:
+            with open(PACKAGES) as f:
+                left = [p for p in f.read().split() if p not in packages]
+            with open(PACKAGES, "w") as f:
+                f.write("\n".join(left))
+    for item in sorted(items, key=lambda i: i["target"] == OWN):  # settings folder last: it holds the manifest
+        kind, target = item["kind"], item["target"]
+        if kind == "file":
+            backup = _original(target)
+            if os.path.lexists(target):
+                os.remove(target)
+            if backup:
+                os.rename(backup, target)
+            managed_gone.add(target)
+        elif kind == "path":
+            shutil.rmtree(target) if os.path.isdir(target) and not os.path.islink(target) else os.remove(target)
+        elif kind == "clipboard":
+            wipe_clipboard()
+        if kind != "package":
+            log.append("Done: %s" % item["label"])
+    if managed_gone and os.path.isfile(MANIFEST):  # some files kept: remember only those
+        with open(MANIFEST) as f:
+            kept = [p for p in json.load(f) if p not in managed_gone]
+        with open(MANIFEST, "w") as f:
+            json.dump(kept, f, indent=2)
+    if managed_gone:
+        log.append("Log out and back in to finish.")
+    return log
 
 
 # ---------- debugging ----------

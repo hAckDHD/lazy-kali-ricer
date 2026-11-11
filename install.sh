@@ -14,10 +14,16 @@ ls -d /sys/class/power_supply/BAT* >/dev/null 2>&1 && PKGS="$PKGS hypridle brigh
 
 if command -v apt >/dev/null; then
     say "Installing packages (sudo may ask for your password)…"
+    before="$(dpkg-query -W -f='${Package}\n' | sort -u)"
     sudo apt update
     # shellcheck disable=SC2086
     sudo apt install -y $PKGS
     sudo apt install -y hyprpolkitagent || say "hyprpolkitagent not in your repos; skipped (only needed for admin prompts)."
+    # Remember what this run added, so `lazy-kali-ricer uninstall` can offer to remove it.
+    OWN="${XDG_CONFIG_HOME:-$HOME/.config}/lazy-kali-ricer"
+    mkdir -p "$OWN"
+    comm -13 <(echo "$before") <(dpkg-query -W -f='${Package}\n' | sort -u) >> "$OWN/installed-packages"
+    sort -u -o "$OWN/installed-packages" "$OWN/installed-packages"
 else
     say "apt not found. Install these yourself, then re-run: $PKGS"
 fi
