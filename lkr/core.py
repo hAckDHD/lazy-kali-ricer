@@ -1,0 +1,448 @@
+"""Settings, themes, app detection, config rendering and debug helpers (no GUI code)."""
+import colorsys
+import configparser
+import getpass
+import json
+import os
+import re
+import shlex
+import shutil
+import socket
+import subprocess
+import time
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+TREE = os.path.join(REPO, "config")
+HOME = os.path.expanduser("~")
+CFG = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+OWN = os.path.join(CFG, "lazy-kali-ricer")
+SETTINGS = os.path.join(OWN, "settings.json")
+MANIFEST = os.path.join(OWN, "manifest.json")  # files we wrote; anything else gets backed up first
+CACHE = os.path.join(HOME, ".cache", "lazy-kali-ricer")
+DEBUG_LOG = os.path.join(CACHE, "hyprland.log")
+THUMBS = os.path.join(HOME, ".cache", "cliphist-thumbs")
+
+EFFECTS = {
+    "static": "Static (one colour)",
+    "gradient": "Gradient (primary into accent)",
+    "spin": "Spinning gradient",
+    "chasing": "Chasing light",
+    "dual": "Dual chase (primary + accent)",
+    "rgb": "RGB rainbow",
+}
+
+# Each theme is colours and style only. Wallpaper is a matching solid colour; pick an
+# image in the GUI if you want one.
+THEMES = {
+    "hAckDHD's theme": dict(primary="#39ff14", accent="#c77dff", inactive="#2ea043", border_size=3, effect="chasing",
+                            speed=5, rounding=8, gaps_in=5, gaps_out=12, glow=True, wallpaper_color="#0a0f0b"),
+    "Kali Dragon": dict(primary="#2777ff", accent="#00e5ff", inactive="#1f3a66", border_size=2, effect="gradient",
+                        speed=5, rounding=10, gaps_in=5, gaps_out=12, glow=True, wallpaper_color="#0b1220"),
+    "Synthwave": dict(primary="#ff2bd6", accent="#00f0ff", inactive="#5b2a86", border_size=3, effect="dual",
+                      speed=6, rounding=12, gaps_in=6, gaps_out=14, glow=True, wallpaper_color="#140a1f"),
+    "Blood Moon": dict(primary="#ff3b3b", accent="#ff9f1c", inactive="#5c1a1a", border_size=3, effect="spin",
+                       speed=4, rounding=4, gaps_in=4, gaps_out=10, glow=True, wallpaper_color="#120808"),
+    "RGB Rig": dict(primary="#00ffd0", accent="#ff00aa", inactive="#333a44", border_size=4, effect="rgb",
+                    speed=7, rounding=10, gaps_in=5, gaps_out=12, glow=False, wallpaper_color="#0c0f12"),
+    "Ghost": dict(primary="#e6e6e6", accent="#9aa5b1", inactive="#3a3f48", border_size=1, effect="static",
+                  speed=5, rounding=0, gaps_in=2, gaps_out=4, glow=False, wallpaper_color="#101214"),
+}
+DEFAULT_THEME = "hAckDHD's theme"
+CUSTOM = "Custom"
+
+# role -> (label, keys shown in the GUI, .desktop categories that qualify)
+ROLES = {
+    "terminal": ("Terminal", "Super+Enter", {"TerminalEmulator"}),
+    "browser": ("Browser", "Super+E", {"WebBrowser"}),
+    "files": ("File manager", "Super+F", {"FileManager"}),
+    "music": ("Music / media", "Super+S", {"Music", "Player"}),
+    "calculator": ("Calculator", "Calculator key", {"Calculator"}),
+    "monitor": ("Task manager", "Ctrl+Shift+Esc", {"Monitor"}),
+}
+NEEDED = ["Hyprland", "waybar", "wofi", "mako", "swaybg", "hyprlock", "cliphist", "wl-paste", "grim", "slurp", "jq"]
+
+
+# ---------- installed programs ----------
+def _clean_exec(cmdline):
+    """Desktop-entry Exec line without field codes (%U, @@u ...)."""
+    try:
+        words = shlex.split(cmdline)
+    except ValueError:
+        return ""
+    return shlex.join(w for w in words if not w.startswith("%") and w not in ("@@", "@@u"))
+
+
+def detect_apps():
+    """{role: [(name, command), ...]} for every installed app with a launcher entry."""
+    from gi.repository import Gio
+
+    found = {role: [] for role in ROLES}
+    for info in Gio.AppInfo.get_all():
+        if not info.should_show():
+            continue
+        cats = set((info.get_categories() or "").split(";"))
+        cmd = _clean_exec(info.get_commandline() or "")
+        if not cmd or cmd.startswith("pkexec"):
+            continue
+        for role, (_label, _keys, want) in ROLES.items():
+            if cats & want and cmd not in [c for _n, c in found[role]]:
+                found[role].append((info.get_name(), cmd))
+    for apps in found.values():
+        apps.sort(key=lambda a: a[0].lower())
+    music = {c for i in Gio.AppInfo.get_all() if "Music" in (i.get_categories() or "").split(";")
+             for c in [_clean_exec(i.get_commandline() or "")]}
+    found["music"].sort(key=lambda a: a[1] not in music)  # music apps before general media players
+    return found
+
+
+def _system_default(role):
+    """Command of the system's default app for a role, when the system has one."""
+    from gi.repository import Gio
+
+    if role == "terminal":
+        path = shutil.which("x-terminal-emulator")
+        return os.path.basename(os.path.realpath(path)) if path else ""
+    mime = {"browser": "x-scheme-handler/http", "files": "inode/directory"}.get(role)
+    info = Gio.AppInfo.get_default_for_type(mime, False) if mime else None
+    return _clean_exec(info.get_commandline() or "") if info else ""
+
+
+def default_apps(found):
+    apps = {}
+    for role, choices in found.items():
+        cmds = [c for _n, c in choices]
+        default = _system_default(role)
+        match = [c for c in cmds if c == default or os.path.basename(shlex.split(c)[0]) == default]
+        apps[role] = (match or cmds or [""])[0]
+    apps["screenshot"] = "flameshot" if shutil.which("flameshot") else "grim"
+    return apps
+
+
+def detect_kb_layout():
+    try:
+        with open("/etc/default/keyboard") as f:
+            for line in f:
+                if line.startswith("XKBLAYOUT="):
+                    return line.split("=", 1)[1].strip().strip('"') or "us"
+    except OSError:
+        pass
+    return "us"
+
+
+def hardware():
+    """One line: CPU vendor, graphics vendors, laptop or desktop."""
+    cpu = _quiet("sh", "-c", "grep -m1 vendor_id /proc/cpuinfo")
+    cpu = "AMD" if "AMD" in cpu else "Intel" if "Intel" in cpu else "unknown"
+    lspci = _quiet("sh", "-c", "lspci | grep -iE 'vga|3d controller|display controller'").lower()
+    gpus = [name for name, mark in (("NVIDIA", "nvidia"), ("AMD", "amd"), ("AMD", "advanced micro"), ("Intel", "intel"))
+            if mark in lspci]
+    gpus = list(dict.fromkeys(gpus)) or ["unknown"]
+    if "NVIDIA" in gpus:
+        gpus[gpus.index("NVIDIA")] = "NVIDIA (%s driver)" % ("proprietary" if os.path.isdir("/sys/module/nvidia") else "nouveau")
+    laptop = any(n.startswith("BAT") for n in os.listdir("/sys/class/power_supply")) if os.path.isdir("/sys/class/power_supply") else False
+    return "%s CPU, %s graphics, %s" % (cpu, " + ".join(gpus), "laptop" if laptop else "desktop")
+
+
+# ---------- settings ----------
+def defaults():
+    s = dict(THEMES[DEFAULT_THEME], theme=DEFAULT_THEME, wallpaper_mode="color", wallpaper_image="",
+             clip_enabled=True, clip_max=200, clip_images=True, clip_skip_sensitive=False, clip_wipe_login=False,
+             keys_on_login=True, debug=False, kb_layout=detect_kb_layout())
+    s["apps"] = default_apps(detect_apps())
+    return s
+
+
+def load():
+    s = defaults()
+    try:
+        with open(SETTINGS) as f:
+            saved = json.load(f)
+        s["apps"].update(saved.pop("apps", {}))
+        s.update(saved)
+    except (OSError, ValueError):
+        pass
+    return s
+
+
+def save(s):
+    os.makedirs(OWN, exist_ok=True)
+    with open(SETTINGS, "w") as f:
+        json.dump(s, f, indent=2)
+
+
+# ---------- colours ----------
+def _rgb(hex_colour):
+    h = hex_colour.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgba(hex_colour, alpha="ff"):
+    return "rgba(%s%s)" % (hex_colour.lstrip("#"), alpha)
+
+
+def effect_colours(s):
+    """Hex colours of the focused-window border gradient, in order."""
+    p, a = s["primary"], s["accent"]
+    dark = lambda c: "#%02x%02x%02x" % tuple(int(v * 0.25) for v in _rgb(c))
+    if s["effect"] in ("gradient", "spin"):
+        return [p, a]
+    if s["effect"] == "chasing":
+        return [p, dark(p), dark(p), p]
+    if s["effect"] == "dual":
+        return [p, dark(p), a, dark(a)]
+    if s["effect"] == "rgb":
+        return ["#%02x%02x%02x" % tuple(int(v * 255) for v in colorsys.hsv_to_rgb(i / 8, 1, 1)) for i in range(9)]
+    return [p]
+
+
+# ---------- commands started with the session ----------
+def wallpaper_cmds(s):
+    if s["wallpaper_mode"] == "image" and os.path.isfile(s["wallpaper_image"]):
+        return ["swaybg -i %s -m fill" % shlex.quote(s["wallpaper_image"])]
+    return ["swaybg -c %s" % shlex.quote(s["wallpaper_color"])]
+
+
+def clipboard_cmds(s):
+    """Clipboard history watchers. Everything copied is kept by default; skipping
+    password-manager entries and wiping at login are opt-in."""
+    if not s["clip_enabled"]:
+        return []
+    store = "cliphist -max-items %d store" % s["clip_max"]
+    if s["clip_skip_sensitive"]:  # wl-paste sets CLIPBOARD_STATE=sensitive for password-manager copies
+        store = "sh -c %s" % shlex.quote('[ "$CLIPBOARD_STATE" = sensitive ] || ' + store)
+    cmds = ["wl-paste --type text --watch " + store]
+    if s["clip_images"]:
+        cmds.append("wl-paste --type image --watch " + store)
+    if s["clip_wipe_login"]:
+        cmds.insert(0, 'cliphist wipe; rm -rf "$HOME/.cache/cliphist-thumbs"')
+    return cmds
+
+
+def debug_cmds(s):
+    if not s["debug"]:
+        return []
+    return ['mkdir -p %s && tail -n +1 -F "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log" > %s'
+            % (shlex.quote(CACHE), shlex.quote(DEBUG_LOG))]
+
+
+# ---------- rendering ----------
+def _lua(value, indent=1):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)  # JSON string escapes are valid Lua
+    pad = "    " * indent
+    if isinstance(value, dict):
+        rows = ["%s%s = %s," % (pad, k, _lua(v, indent + 1)) for k, v in value.items()]
+    else:
+        rows = ["%s%s," % (pad, _lua(v, indent + 1)) for v in value]
+    return "{\n%s\n%s}" % ("\n".join(rows), "    " * (indent - 1))
+
+
+def settings_lua(s):
+    speed = max(1, min(10, int(s["speed"])))
+    border = {
+        "size": int(s["border_size"]),
+        "colors": [_rgba(c) for c in effect_colours(s)],
+        "inactive": _rgba(s["inactive"], "cc"),
+        "loop": s["effect"] in ("spin", "chasing", "dual", "rgb"),
+        "speed": 130 - 12 * speed,  # deciseconds per turn; higher is slower
+    }
+    table = {
+        "apps": s["apps"],
+        "kb_layout": s["kb_layout"],
+        "border": border,
+        "rounding": int(s["rounding"]),
+        "gaps_in": int(s["gaps_in"]),
+        "gaps_out": int(s["gaps_out"]),
+        "glow": {"enabled": bool(s["glow"]), "color": _rgba(s["primary"], "66")},
+        "clipboard": bool(s["clip_enabled"]),
+        "autostart": wallpaper_cmds(s) + clipboard_cmds(s) + debug_cmds(s),
+    }
+    return "-- Written by lazy-kali-ricer. Change these in the GUI (or here, then `hyprctl reload`).\nreturn %s\n" % _lua(table)
+
+
+def hyprlock_conf(s):
+    if s["wallpaper_mode"] == "image" and os.path.isfile(s["wallpaper_image"]):
+        background = "path = %s\n    blur_passes = 2" % s["wallpaper_image"]
+    else:
+        background = "color = rgb(%s)" % s["wallpaper_color"].lstrip("#")
+    return """# Written by lazy-kali-ricer.
+background {
+    %s
+}
+
+input-field {
+    size = 300, 50
+    position = 0, -80
+    halign = center
+    valign = center
+    outline_thickness = %d
+    outer_color = rgb(%s)
+    inner_color = rgb(15181c)
+    font_color = rgb(d7e9df)
+    check_color = rgb(%s)
+    fail_color = rgb(ff5370)
+}
+""" % (background, max(1, int(s["border_size"])), s["primary"].lstrip("#"), s["accent"].lstrip("#"))
+
+
+def _write(path, text, mode, managed, stamp):
+    """Write a config file. A file we did not write before is moved to *.bak-<stamp> first."""
+    backed_up = None
+    if os.path.lexists(path) and path not in managed:
+        backed_up = "%s.bak-%s" % (path, stamp)
+        os.rename(path, backed_up)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(text)
+    os.chmod(path, mode)
+    managed.add(path)
+    return backed_up
+
+
+def _flameshot(s):
+    """Wayland-safe capture settings and theme colour, keeping the user's other options."""
+    path = os.path.join(CFG, "flameshot", "flameshot.ini")
+    ini = configparser.RawConfigParser()
+    ini.optionxform = str
+    ini.read(path)
+    if not ini.has_section("General"):
+        ini.add_section("General")
+    for key, value in (("useX11LegacyScreenshot", "false"), ("captureActiveMonitor", "false"), ("showHelp", "false"),
+                       ("showStartupLaunchMessage", "false"), ("showDesktopNotification", "false"),
+                       ("uiColor", s["primary"]), ("contrastUiColor", "#000000")):
+        ini.set("General", key, value)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        ini.write(f, space_around_delimiters=False)
+
+
+def apply(s):
+    """Save settings, write every config file, reload the running session. Returns log lines."""
+    save(s)
+    try:
+        with open(MANIFEST) as f:
+            managed = set(json.load(f))
+    except (OSError, ValueError):
+        managed = set()
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    tokens = {
+        "__LKR_PRIMARY_RGB__": "%d, %d, %d" % _rgb(s["primary"]),
+        "__LKR_ACCENT_RGB__": "%d, %d, %d" % _rgb(s["accent"]),
+        "__LKR_PRIMARY__": s["primary"],
+        "__LKR_ACCENT__": s["accent"],
+    }
+    files = []  # (destination, text, mode)
+    for root, _dirs, names in os.walk(TREE):
+        for name in names:
+            src = os.path.join(root, name)
+            with open(src) as f:
+                text = f.read()
+            for token, value in tokens.items():
+                text = text.replace(token, value)
+            files.append((os.path.join(CFG, os.path.relpath(src, TREE)), text, os.stat(src).st_mode & 0o777))
+    files.append((os.path.join(CFG, "hypr", "settings.lua"), settings_lua(s), 0o644))
+    files.append((os.path.join(CFG, "hypr", "hyprlock.conf"), hyprlock_conf(s), 0o644))
+
+    log = []
+    for path, text, mode in files:
+        backup = _write(path, text, mode, managed, stamp)
+        if backup:
+            log.append("Backed up %s" % backup.replace(HOME, "~"))
+    old_bar = os.path.join(CFG, "waybar", "config")  # old-style file confuses waybar if both exist
+    if os.path.lexists(old_bar):
+        os.rename(old_bar, "%s.bak-%s" % (old_bar, stamp))
+    if s["apps"]["screenshot"] == "flameshot":
+        _flameshot(s)
+    with open(MANIFEST, "w") as f:
+        json.dump(sorted(managed), f, indent=2)
+    log.append("Wrote %d config files to %s" % (len(files), CFG.replace(HOME, "~")))
+
+    missing = [b for b in NEEDED + (["flameshot"] if s["apps"]["screenshot"] == "flameshot" else []) if not shutil.which(b)]
+    if missing:
+        log.append("Not installed: %s. Run ./install.sh" % ", ".join(missing))
+    if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        reload_session(s)
+        log.append("Reloaded Hyprland, bar, wallpaper and clipboard.")
+    else:
+        log.append("Log in to a Hyprland session to see it.")
+    return log
+
+
+def _spawn(cmd):
+    subprocess.Popen(["sh", "-c", cmd], start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _quiet(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def reload_session(s):
+    _quiet("hyprctl", "reload")
+    _quiet("makoctl", "reload")
+    for name in ("waybar", "swaybg"):
+        _quiet("pkill", "-x", name)
+    _quiet("pkill", "-f", "wl-paste .*--watch")
+    time.sleep(0.5)
+    for cmd in ["waybar"] + wallpaper_cmds(s) + [c for c in clipboard_cmds(s) if c.startswith("wl-paste")]:
+        _spawn(cmd)
+
+
+def wipe_clipboard():
+    _quiet("cliphist", "wipe")
+    shutil.rmtree(THUMBS, ignore_errors=True)
+
+
+# ---------- debugging ----------
+def set_debug(on):
+    """Mirror the Hyprland log to a file that survives a crash or reboot."""
+    s = load()
+    s["debug"] = on
+    save(s)
+    lua = os.path.join(CFG, "hypr", "settings.lua")
+    if os.path.exists(lua):
+        with open(lua, "w") as f:
+            f.write(settings_lua(s))
+    _quiet("pkill", "-f", "tail -n \\+1 -F .*hyprland.log")
+    if on and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        _spawn(debug_cmds(s)[0])
+    return s
+
+
+def debug_report():
+    """Collect versions, settings, config errors and the log tail into one text file.
+    Home path, user name and host name are replaced so the file is safe to share."""
+    s = load()
+    parts = [("lazy-kali-ricer debug report", time.strftime("%Y-%m-%d %H:%M:%S"))]
+    parts.append(("os", _quiet("sh", "-c", ". /etc/os-release; echo \"$PRETTY_NAME\"; uname -r")))
+    parts.append(("hyprland", _quiet("Hyprland", "--version")))
+    parts.append(("hardware", hardware() + "\n" + _quiet("sh", "-c", "lspci | grep -iE 'vga|3d|display'")))
+    parts.append(("tools", "\n".join("%s: %s" % (b, shutil.which(b) or "MISSING") for b in NEEDED + ["flameshot"])))
+    parts.append(("settings.json", json.dumps(s, indent=2)))
+    parts.append(("settings.lua", _quiet("cat", os.path.join(CFG, "hypr", "settings.lua"))))
+    parts.append(("config errors", _quiet("hyprctl", "configerrors") or "(Hyprland not running)"))
+    parts.append(("monitors", _quiet("sh", "-c", "hyprctl monitors | grep -E '^Monitor|^\\s+[0-9]+x[0-9]+@'")))
+    live = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr", os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "-"), "hyprland.log")
+    for path in (DEBUG_LOG, live):
+        if os.path.isfile(path):
+            parts.append(("log tail: " + os.path.basename(os.path.dirname(path)), _quiet("tail", "-n", "300", path)))
+            break
+    else:
+        parts.append(("log", "No log found. Run `lazy-kali-ricer debug on`, reproduce the problem, then report again."))
+    text = "\n".join("===== %s =====\n%s\n" % (title, body.strip()) for title, body in parts)
+    text = text.replace(HOME, "~")
+    for secret, shown in ((getpass.getuser(), "USER"), (socket.gethostname(), "HOST")):
+        if secret != "kali":  # stock Kali name: not personal, and part of version strings
+            text = re.sub(r"\b%s\b" % re.escape(secret), shown, text)
+    out = os.path.join(CACHE, "debug-report.txt")
+    os.makedirs(CACHE, exist_ok=True)
+    with open(out, "w") as f:
+        f.write(text)
+    return out

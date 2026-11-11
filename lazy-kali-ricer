@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""lazy-kali-ricer: rice Hyprland from a GUI.
+
+  lazy-kali-ricer                 Open the GUI.
+  lazy-kali-ricer apply           Write the configs from the saved settings (no GUI).
+  lazy-kali-ricer debug on        Mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log.
+  lazy-kali-ricer debug off       Stop mirroring.
+  lazy-kali-ricer debug report    Save a shareable report (versions, settings, config errors, log tail).
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from lkr import core  # noqa: E402
+
+args = sys.argv[1:]
+if not args:
+    from lkr import gui
+    gui.main()
+elif args == ["apply"]:
+    print("\n".join(core.apply(core.load())))
+elif args in (["debug", "on"], ["debug", "off"]):
+    on = core.set_debug(args[1] == "on")["debug"]
+    print("Debug logging on: %s" % core.DEBUG_LOG if on else "Debug logging off.")
+elif args == ["debug", "report"]:
+    print("Report saved: %s\nRead it before you share it." % core.debug_report())
+else:
+    sys.exit(__doc__)

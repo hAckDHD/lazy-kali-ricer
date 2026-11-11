@@ -1,0 +1,154 @@
+/* Dark "glass" Hyprland bar: transparent, primary + accent accents. */
+
+* {
+    /* exact installed family names — Debian ships FA with the style in the family name,
+       so "Font Awesome 6 Free" never matched and every icon rendered blank */
+    font-family: "Hack", "Font Awesome 6 Free Solid", "Font Awesome 6 Brands Regular", monospace;
+    font-size: 14px;
+    font-weight: bold;
+    min-height: 0;
+    border: none;
+    border-radius: 0;
+}
+
+/* Clear bar — only the modules are visible */
+window#waybar {
+    background: transparent;
+    color: #d7e9df;
+}
+
+/* Shared glass pill: darker/less transparent, thin primary hairline, soft glow */
+#workspaces,
+#window,
+#custom-minimized,
+#clock,
+#bluetooth,
+#network,
+#pulseaudio,
+#pulseaudio.microphone,
+#cpu,
+#memory,
+#custom-cputemp,
+#battery,
+#tray {
+    background: rgba(12, 15, 18, 0.88);
+    color: #d7e9df;
+    padding: 0 14px;
+    margin: 7px 3px;
+    border-radius: 10px;
+    border: 1px solid rgba(__LKR_PRIMARY_RGB__, 0.22);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Colours inside the pills come from pango spans in the config:
+   accent icon/label, primary value, red when off or disconnected. */
+#clock, #custom-minimized, #tray { border-color: rgba(__LKR_ACCENT_RGB__, 0.40); }
+
+/* Workspaces: flat strip, dot-style buttons */
+#workspaces {
+    padding: 0 4px;
+    border-color: rgba(__LKR_ACCENT_RGB__, 0.30);
+}
+#workspaces button {
+    padding: 0 9px;
+    margin: 5px 2px;
+    color: #6f8378;
+    background: transparent;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+#workspaces button.active {
+    color: #0a0f0b;
+    background: __LKR_PRIMARY__;                       /* primary, matches active window */
+    box-shadow: 0 0 10px rgba(__LKR_PRIMARY_RGB__, 0.6);
+}
+#workspaces button.urgent {
+    color: #0a0f0b;
+    background: __LKR_ACCENT__;
+}
+#workspaces button:hover {
+    color: #eafff2;
+    background: rgba(__LKR_PRIMARY_RGB__, 0.18);
+    box-shadow: none;
+}
+
+/* Window title: muted, no loud pill */
+#window {
+    background: rgba(14, 18, 20, 0.40);
+    color: #b8c4bd;
+    font-weight: normal;
+    border-color: transparent;
+}
+window#waybar.empty #window {
+    background: transparent;
+    box-shadow: none;
+}
+
+/* States */
+#battery.warning  { border-color: rgba(224, 176, 32, 0.6); }
+#battery.critical,
+#bluetooth.off, #bluetooth.disabled,
+#network.disconnected, #network.disabled { border-color: rgba(255, 83, 112, 0.55); }
+
+#tray {
+    background: rgba(12, 15, 18, 0.88);
+    color: #d7e9df;
+    padding: 0 14px;
+    margin: 7px 3px;
+    border-radius: 10px;
+    border: 1px solid rgba(__LKR_PRIMARY_RGB__, 0.22);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Colours inside the pills come from pango spans in the config:
+   accent icon/label, primary value, red when off or disconnected. */
+#clock, #custom-minimized, #tray { border-color: rgba(__LKR_ACCENT_RGB__, 0.40); }
+
+/* Workspaces: flat strip, dot-style buttons */
+#workspaces {
+    padding: 0 4px;
+    border-color: rgba(__LKR_ACCENT_RGB__, 0.30);
+}
+#workspaces button {
+    padding: 0 9px;
+    margin: 5px 2px;
+    color: #6f8378;
+    background: transparent;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+#workspaces button.active {
+    color: #0a0f0b;
+    background: __LKR_PRIMARY__;                       /* primary, matches active window */
+    box-shadow: 0 0 10px rgba(__LKR_PRIMARY_RGB__, 0.6);
+}
+#workspaces button.urgent {
+    color: #0a0f0b;
+    background: __LKR_ACCENT__;
+}
+#workspaces button:hover {
+    color: #eafff2;
+    background: rgba(__LKR_PRIMARY_RGB__, 0.18);
+    box-shadow: none;
+}
+
+/* Window title: muted, no loud pill */
+#window {
+    background: rgba(14, 18, 20, 0.40);
+    color: #b8c4bd;
+    font-weight: normal;
+    border-color: transparent;
+}
+window#waybar.empty #window {
+    background: transparent;
+    box-shadow: none;
+}
+
+/* States */
+#pulseaudio.muted { color: #6f8378; }
+#battery.charging { color: __LKR_PRIMARY__; }
+#battery.warning  { color: #e0b020; }
+#battery.critical { color: #ff5370; border-color: rgba(255, 83, 112, 0.5); }
+
+#tray { border-color: rgba(__LKR_ACCENT_RGB__, 0.25); }
+#tray menu { color: #d7e9df; background: #0e1214; }

@@ -1,0 +1,122 @@
+// Waybar — dark-glass Hyprland bar, primary/accent accents.
+// Right side: Minimized windows · Bluetooth · Network · Volume · Mic · CPU · RAM · CPU temp · Battery · Tray
+// Colour rule for every item: accent icon/label, primary value, red when off or disconnected.
+// Clicks show info on hover (tooltips); they don't open new app windows.
+{
+    "layer": "top",
+    "position": "top",
+    "height": 60,
+    "spacing": 6,
+    "margin-top": 6,
+    "margin-left": 10,
+    "margin-right": 10,
+
+    "modules-left":   ["hyprland/workspaces", "hyprland/window"],
+    "modules-center": ["clock"],
+    "modules-right":  ["custom/minimized", "bluetooth", "network", "pulseaudio", "pulseaudio#microphone", "cpu", "memory", "custom/cputemp", "battery", "tray"],
+
+    "hyprland/workspaces": {
+        "all-outputs": false,          // each monitor's bar shows only its own workspaces
+        "active-only": false,
+        "on-click": "activate",
+        "format": "{id}",
+        "persistent-workspaces": {}
+    },
+
+    // Minimized windows: count (0 when none). Click lists them with app icons to restore.
+    "custom/minimized": {
+        "exec": "~/.config/hypr/scripts/winctl.py count",
+        "return-type": "json",
+        "interval": 3,
+        "signal": 8,
+        "on-click": "~/.config/hypr/scripts/winctl.py switch-minimized"
+    },
+
+    "hyprland/window": {
+        "max-length": 48,
+        "separate-outputs": true
+    },
+
+    "clock": {
+        "format": "<span color='__LKR_ACCENT__'>\uf017</span>  <span color='__LKR_PRIMARY__'>{:%a %d %b   %H:%M}</span>",
+        "tooltip-format": "<tt><big>{calendar}</big></tt>"
+    },
+
+    "bluetooth": {
+        "on-click": "~/.config/hypr/scripts/panel.py bluetooth",   // panel: power switch + paired devices
+        "format": "<span color='__LKR_ACCENT__'>\uf294</span>",
+        "format-disabled": "<span color='#ff5370'>\uf294</span>",
+        "format-off": "<span color='#ff5370'>\uf294</span>",
+        "format-connected": "<span color='__LKR_ACCENT__'>\uf294</span> <span color='__LKR_PRIMARY__'>{num_connections}</span>",
+        "tooltip-format": "{controller_alias}\nStatus: {status}",
+        "tooltip-format-connected": "{controller_alias}\n{device_enumerate}",
+        "tooltip-format-enumerate-connected": "{device_alias}"
+    },
+
+    "network": {
+        "interval": 5,
+        "on-click": "~/.config/hypr/scripts/panel.py network",   // panel: Ethernet + Wi-Fi sections with switches
+        "format-ethernet": "<span color='__LKR_ACCENT__'>\uf796</span>",
+        "format-wifi": "<span color='__LKR_ACCENT__'>\uf1eb</span>",
+        "format-linked": "<span color='#ff5370'>\uf00d</span>",
+        "format-disconnected": "<span color='#ff5370'>\uf00d</span>",
+        "format-disabled": "<span color='#ff5370'>\uf00d</span>",
+        "tooltip-format-ethernet": "Ethernet {ifname}\n{ipaddr}/{cidr}\n\u2193 {bandwidthDownBits}  \u2191 {bandwidthUpBits}",
+        "tooltip-format-wifi": "Wi-Fi {essid} ({signalStrength}%)\n{ifname}  {ipaddr}/{cidr}",
+        "tooltip-format-disconnected": "No network connection — click for networks"
+    },
+
+    "pulseaudio": {
+        "format": "<span color='__LKR_ACCENT__'>{icon}</span>  <span color='__LKR_PRIMARY__'>{volume}%</span>",
+        "format-muted": "<span color='#ff5370'>\uf6a9</span>  <span color='#6f8378'>muted</span>",
+        "format-icons": { "default": ["\uf026", "\uf027", "\uf028"] },
+        "scroll-step": 5,
+        "on-click": "~/.config/waybar/scripts/audio-menu.sh sink",      // pick output device
+        "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        "tooltip-format": "{desc}\n{volume}% — click to change output"
+    },
+
+    "pulseaudio#microphone": {
+        "format": "{format_source}",
+        "format-source": "<span color='__LKR_ACCENT__'>\uf130</span>  <span color='__LKR_PRIMARY__'>{volume}%</span>",
+        "format-source-muted": "<span color='#ff5370'>\uf131</span>  <span color='#6f8378'>mic</span>",
+        "on-click": "~/.config/waybar/scripts/audio-menu.sh source",    // pick input device
+        "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
+        "scroll-step": 5,
+        "tooltip-format": "Microphone {volume}% — click to change input"
+    },
+
+    "cpu": {
+        "interval": 2,
+        "format": "<span color='__LKR_ACCENT__'>\uf2db</span> <span color='__LKR_PRIMARY__'>{usage}%</span>",
+        "tooltip-format": "CPU load: {usage}%  ({avg_frequency} GHz)"
+    },
+
+    "memory": {
+        "interval": 5,
+        "format": "<span color='__LKR_ACCENT__'>RAM</span> <span color='__LKR_PRIMARY__'>{percentage}%</span>",
+        "tooltip-format": "{used:0.1f} GiB / {total:0.1f} GiB"
+    },
+
+    "custom/cputemp": {
+        "interval": 2,
+        "exec": "~/.config/waybar/scripts/cpu-temp.sh",
+        "format": "<span color='__LKR_ACCENT__'>\uf2c9</span> <span color='__LKR_PRIMARY__'>{}°C</span>",
+        "tooltip": false
+    },
+
+    "battery": {
+        "interval": 30,
+        "states": { "warning": 25, "critical": 10 },
+        "format": "<span color='__LKR_ACCENT__'>{icon}</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
+        "format-charging": "<span color='__LKR_ACCENT__'>\uf0e7</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
+        "format-plugged": "<span color='__LKR_ACCENT__'>\uf1e6</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
+        "format-icons": ["\uf244", "\uf243", "\uf242", "\uf241", "\uf240"],
+        "tooltip-format": "{timeTo}"
+    },
+
+    "tray": {
+        "icon-size": 18,
+        "spacing": 10
+    }
+}

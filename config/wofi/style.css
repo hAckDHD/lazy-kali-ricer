@@ -1,0 +1,48 @@
+/* wofi launcher — readable dark grey, primary/accent accents */
+
+window {
+    margin: 0;
+    background-color: rgba(30, 33, 38, 0.97);   /* dark grey, high-contrast */
+    border: 2px solid __LKR_PRIMARY__;                   /* primary frame */
+    border-radius: 14px;
+    font-family: "Hack", monospace;
+    font-size: 15px;
+    color: #eaf2ee;
+}
+
+#outer-box { margin: 14px; }
+
+#input {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 10px;
+    background-color: #2a2e35;                    /* lighter grey so the text field reads clearly */
+    color: #ffffff;
+    border-bottom: 2px solid __LKR_ACCENT__;            /* accent underline */
+}
+
+#input image { color: __LKR_PRIMARY__; }
+
+#scroll { margin: 0; }
+
+#inner-box { margin: 2px; }
+
+#entry {
+    padding: 9px 12px;
+    margin: 2px 0;
+    border-radius: 9px;
+    color: #d9e4de;
+}
+
+#entry:selected {
+    background-color: __LKR_PRIMARY__;                    /* primary highlight */
+    color: #0a0f0b;
+    outline: none;
+}
+
+#entry:selected #text { color: #0a0f0b; font-weight: bold; }
+
+#text { color: #d9e4de; }
+
+#entry image { margin-right: 10px; }

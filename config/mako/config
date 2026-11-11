@@ -1,0 +1,40 @@
+# mako notifications — dark glass, primary frame, primary/accent accents
+sort=-time
+layer=overlay
+anchor=top-right
+max-visible=5
+
+font=Hack 11
+background-color=#0c0f12ec
+text-color=#d7e9df
+width=380
+height=140
+margin=14
+padding=14,16
+border-size=2
+border-color=__LKR_PRIMARY__
+border-radius=12
+progress-color=over __LKR_ACCENT__
+
+icons=1
+max-icon-size=48
+default-timeout=5000
+ignore-timeout=0
+
+[urgency=low]
+border-color=__LKR_ACCENT__
+default-timeout=4000
+
+[urgency=normal]
+border-color=__LKR_PRIMARY__
+
+[urgency=high]
+border-color=#ff5370
+text-color=#ffd7dd
+default-timeout=0
+
+[category=mpris]
+border-color=__LKR_PRIMARY__
+
+[mode=do-not-disturb]
+invisible=1

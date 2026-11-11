@@ -1,0 +1,11 @@
+allow_images=true
+allow_markup=true
+width=620
+height=440
+lines=10
+insensitive=true
+prompt=Search
+hide_scroll=true
+no_actions=true
+gtk_dark=true
+single_click=true
