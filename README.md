@@ -13,6 +13,29 @@ options, press **Apply**. No config files to edit.
 
 It sets up Hyprland (Lua config), Waybar, wofi, mako, hyprlock and, on laptops, hypridle.
 
+![Theme tab: pick a theme or build your own, with a live preview](docs/screenshots/theme.png)
+
+<details>
+<summary>More screenshots</summary>
+
+**Apps:** pick from the programs found on your system.
+
+![Apps tab](docs/screenshots/apps.png)
+
+**Get apps:** install common programs with a tick.
+
+![Get apps tab](docs/screenshots/get-apps.png)
+
+**Wallpaper:** a colour, an image, or a rotating folder.
+
+![Wallpaper tab](docs/screenshots/wallpaper.png)
+
+**Uninstall:** every change listed; untick what you want to keep.
+
+![Uninstall tab](docs/screenshots/uninstall.png)
+
+</details>
+
 ## Install
 
 ```bash
