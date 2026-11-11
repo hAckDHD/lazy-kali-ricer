@@ -12,9 +12,9 @@ local menus  = "~/.config/hypr/scripts/menus.py"
 ------------------
 ---- MONITORS ----
 ------------------
--- Every monitor at its preferred mode, placed automatically. For a fixed layout add
+-- Every monitor at its preferred mode, placed automatically. For a fixed layout put
 -- lines like: hl.monitor({ output = "DP-1", mode = "1920x1080@60", position = "0x0", scale = 1 })
--- (names from `hyprctl monitors`).
+-- in local.lua (see the end of this file; names from `hyprctl monitors`).
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 
 --------------------------------------
@@ -315,4 +315,16 @@ for i = 1, 10 do
     local key = i % 10
     bind("CTRL + ALT + " .. key,   hl.dsp.focus({ workspace = i }),                       "Go to workspace " .. i)
     bind("CTRL + SUPER + " .. key, hl.dsp.window.move({ workspace = i, follow = false }), "Send window to workspace " .. i)
+end
+
+---------------------
+---- YOUR EXTRAS ----
+---------------------
+-- Put your own settings (fixed monitor layout, extra binds, rules) in local.lua next to
+-- this file. It is loaded last, and lazy-kali-ricer never writes or removes it.
+local extras = cfg .. "/hypr/local.lua"
+local f = io.open(extras)
+if f then
+    f:close()
+    dofile(extras)
 end

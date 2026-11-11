@@ -350,18 +350,27 @@ input-field {
 """ % (background, max(1, int(s["border_size"])), s["primary"].lstrip("#"), s["accent"].lstrip("#"))
 
 
+def _manifest():
+    """{config file we wrote: backup of what was there before, or None}"""
+    try:
+        with open(MANIFEST) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def _write(path, text, mode, managed, stamp):
     """Write a config file. A file we did not write before is moved to *.bak-<stamp> first."""
-    backed_up = None
-    if os.path.lexists(path) and path not in managed:
-        backed_up = "%s.bak-%s" % (path, stamp)
-        os.rename(path, backed_up)
+    if path not in managed:
+        managed[path] = None
+        if os.path.lexists(path):
+            managed[path] = "%s.bak-%s" % (path, stamp)
+            os.rename(path, managed[path])
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(text)
     os.chmod(path, mode)
-    managed.add(path)
-    return backed_up
+    return managed[path]
 
 
 def _flameshot(s):
@@ -387,11 +396,7 @@ def _flameshot(s):
 def apply(s):
     """Save settings, write every config file, reload the running session. Returns log lines."""
     save(s)
-    try:
-        with open(MANIFEST) as f:
-            managed = set(json.load(f))
-    except (OSError, ValueError):
-        managed = set()
+    managed = _manifest()
     stamp = time.strftime("%Y%m%d-%H%M%S")
     tokens = {
         "__LKR_PRIMARY_RGB__": "%d, %d, %d" % _rgb(s["primary"]),
@@ -413,17 +418,18 @@ def apply(s):
 
     log = []
     for path, text, mode in files:
+        first = path not in managed
         backup = _write(path, text, mode, managed, stamp)
-        if backup:
+        if first and backup:
             log.append("Backed up %s" % backup.replace(HOME, "~"))
     old_bar = os.path.join(CFG, "waybar", "config")  # old-style file confuses waybar if both exist
     if os.path.lexists(old_bar):
-        os.rename(old_bar, "%s.bak-%s" % (old_bar, stamp))
-        managed.add(old_bar)  # so uninstall puts it back
+        managed[old_bar] = "%s.bak-%s" % (old_bar, stamp)  # so uninstall puts it back
+        os.rename(old_bar, managed[old_bar])
     if s["apps"]["screenshot"] == "flameshot":
-        managed.update(filter(None, [_flameshot(s)]))
+        managed.update(dict.fromkeys(filter(None, [_flameshot(s)])))
     with open(MANIFEST, "w") as f:
-        json.dump(sorted(managed), f, indent=2)
+        json.dump(managed, f, indent=2, sort_keys=True)
     log.append("Wrote %d config files to %s" % (len(files), CFG.replace(HOME, "~")))
 
     missing = [b for b in NEEDED + (["flameshot"] if s["apps"]["screenshot"] == "flameshot" else []) if not shutil.which(b)]
@@ -467,30 +473,14 @@ def wipe_clipboard():
 
 
 # ---------- uninstall ----------
-def _original(path):
-    """The oldest backup of a config file: what was there before the first Apply."""
-    folder, name = os.path.split(path)
-    try:
-        backups = sorted(n for n in os.listdir(folder) if n.startswith(name + ".bak-"))
-    except OSError:
-        backups = []
-    return os.path.join(folder, backups[0]) if backups else None
-
-
 def uninstall_items():
     """Everything uninstall can undo, one dict per step: kind, target, label, on (default).
     Config files and our own data are on; packages and clipboard history are off,
     because other programs or you may still want them."""
     short = lambda p: p.replace(HOME, "~")
     items = []
-    try:
-        with open(MANIFEST) as f:
-            managed = json.load(f)
-    except (OSError, ValueError):
-        managed = []
-    for path in managed:
-        backup = _original(path)
-        if backup:
+    for path, backup in _manifest().items():
+        if backup and os.path.lexists(backup):
             label = "Restore %s  (from %s)" % (short(path), os.path.basename(backup))
         elif os.path.lexists(path):
             label = "Delete %s" % short(path)
@@ -530,10 +520,10 @@ def uninstall(items):
     for item in sorted(items, key=lambda i: i["target"] == OWN):  # settings folder last: it holds the manifest
         kind, target = item["kind"], item["target"]
         if kind == "file":
-            backup = _original(target)
+            backup = _manifest().get(target)
             if os.path.lexists(target):
                 os.remove(target)
-            if backup:
+            if backup and os.path.lexists(backup):
                 os.rename(backup, target)
             managed_gone.add(target)
         elif kind == "path":
@@ -543,10 +533,9 @@ def uninstall(items):
         if kind != "package":
             log.append("Done: %s" % item["label"])
     if managed_gone and os.path.isfile(MANIFEST):  # some files kept: remember only those
-        with open(MANIFEST) as f:
-            kept = [p for p in json.load(f) if p not in managed_gone]
+        kept = {p: b for p, b in _manifest().items() if p not in managed_gone}
         with open(MANIFEST, "w") as f:
-            json.dump(kept, f, indent=2)
+            json.dump(kept, f, indent=2, sort_keys=True)
     if managed_gone:
         log.append("Log out and back in to finish.")
     return log

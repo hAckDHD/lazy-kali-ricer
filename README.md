@@ -186,8 +186,15 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `~/.config/lazy-kali-ricer/settings.json` | Your choices |
 | `~/.config/hypr/settings.lua` | The same choices, as read by `hyprland.lua` |
 
-Monitors are placed automatically. For a fixed layout add `hl.monitor` lines to
-`~/.config/hypr/hyprland.lua`; note that Apply rewrites that file.
+| `~/.config/hypr/local.lua` | Optional, yours. Loaded last; Apply and Uninstall never touch it. |
+
+Monitors are placed automatically. For a fixed layout, extra keybinds or window rules,
+create `~/.config/hypr/local.lua`:
+
+```lua
+hl.monitor({ output = "DP-1",     mode = "1920x1080@60", position = "0x0",    scale = 1 })
+hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@60", position = "1920x0", scale = 1 })
+```
 
 ## Licence
 
