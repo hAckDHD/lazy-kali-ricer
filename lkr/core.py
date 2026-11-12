@@ -19,6 +19,7 @@ CFG = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
 OWN = os.path.join(CFG, "lazy-kali-ricer")
 SETTINGS = os.path.join(OWN, "settings.json")
 MANIFEST = os.path.join(OWN, "manifest.json")  # files we wrote; anything else gets backed up first
+USER_THEMES = os.path.join(OWN, "themes.json")  # themes saved from the GUI: {name: theme}
 PACKAGES = os.path.join(OWN, "installed-packages")  # packages install.sh added, one per line
 COMMAND = os.path.join(HOME, ".local", "bin", "lazy-kali-ricer")
 CACHE = os.path.join(HOME, ".cache", "lazy-kali-ricer")
@@ -52,6 +53,33 @@ THEMES = {
 }
 DEFAULT_THEME = "hAckDHD's theme"
 CUSTOM = "Custom"
+
+
+
+def user_themes():
+    try:
+        with open(USER_THEMES) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def all_themes():
+    """Built-in themes, then the ones saved from the GUI."""
+    return {**user_themes(), **THEMES}
+
+
+def save_theme(name, s):
+    """Keep the current look under a name. s=None deletes that saved theme."""
+    themes = user_themes()
+    if s is None:
+        themes.pop(name, None)
+    else:
+        themes[name] = {key: s[key] for key in THEMES[DEFAULT_THEME]}
+    os.makedirs(OWN, exist_ok=True)
+    with open(USER_THEMES, "w") as f:
+        json.dump(themes, f, indent=2)
+
 
 # role -> (label, keys shown in the GUI, .desktop categories that qualify)
 ROLES = {
@@ -191,12 +219,32 @@ def install_packages(packages):
     return True
 
 
+def live_monitors():
+    """Connected screens as Hyprland has them now: position, mode, and size in layout units."""
+    try:
+        found = json.loads(_quiet("hyprctl", "monitors", "-j") or "[]")
+    except ValueError:
+        return []
+    screens = []
+    for m in found:
+        w, h = m["width"] / m["scale"], m["height"] / m["scale"]
+        if m.get("transform", 0) % 2:  # rotated a quarter turn
+            w, h = h, w
+        modes = list(dict.fromkeys(mode.replace("Hz", "") for mode in m.get("availableModes", [])))
+        screens.append(dict(name=m["name"], x=m["x"], y=m["y"], w=round(w), h=round(h), scale=m["scale"],
+                            transform=m.get("transform", 0), modes=modes,
+                            mode="%dx%d@%.2f" % (m["width"], m["height"], m["refreshRate"])))
+    return screens
+
+
 # ---------- settings ----------
 def defaults():
+    # shortcuts: [{"keys": "SUPER + b", "cmd": "...", "desc": "..."}]
+    # monitors: [] = place automatically, else [{"name", "mode", "x", "y", "scale", "transform"}]
     s = dict(THEMES[DEFAULT_THEME], theme=DEFAULT_THEME, wallpaper_mode="color", wallpaper_image="",
              wallpaper_dir="", wallpaper_minutes=10,
              clip_enabled=True, clip_max=200, clip_images=True, clip_skip_sensitive=False, clip_wipe_login=False,
-             keys_on_login=True, debug=False, kb_layout=detect_kb_layout())
+             keys_on_login=True, shortcuts=[], monitors=[], debug=False, kb_layout=detect_kb_layout())
     s["apps"] = default_apps(detect_apps())
     return s
 
@@ -318,6 +366,10 @@ def settings_lua(s):
         "glow": {"enabled": bool(s["glow"]), "color": _rgba(s["primary"], "66")},
         "clipboard": bool(s["clip_enabled"]),
         "wallpaper_next": _rotate_cmd(s),
+        "monitors": [{"output": m["name"], "mode": m["mode"], "position": "%dx%d" % (m["x"], m["y"]),
+                      "scale": m["scale"], "transform": m.get("transform", 0)} for m in s["monitors"]],
+        "shortcuts": [{"keys": sc["keys"], "cmd": sc["cmd"], "desc": sc.get("desc") or sc["cmd"]}
+                      for sc in s["shortcuts"] if sc.get("keys") and sc.get("cmd")],
         "autostart": wallpaper_cmds(s) + clipboard_cmds(s) + debug_cmds(s),
     }
     return "-- Written by lazy-kali-ricer. Change these in the GUI (or here, then `hyprctl reload`).\nreturn %s\n" % _lua(table)
@@ -492,7 +544,7 @@ def uninstall_items():
     if os.path.isdir(CACHE):
         items.append(dict(kind="path", target=CACHE, label="Delete debug logs and reports in %s" % short(CACHE), on=True))
     if os.path.isdir(OWN):
-        items.append(dict(kind="path", target=OWN, label="Delete saved settings in %s" % short(OWN), on=True))
+        items.append(dict(kind="path", target=OWN, label="Delete saved settings and themes in %s" % short(OWN), on=True))
     if os.path.isdir(os.path.join(HOME, ".cache", "cliphist")):
         items.append(dict(kind="clipboard", target="", label="Wipe clipboard history", on=False))
     try:

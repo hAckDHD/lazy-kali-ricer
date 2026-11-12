@@ -12,10 +12,11 @@ local menus  = "~/.config/hypr/scripts/menus.py"
 ------------------
 ---- MONITORS ----
 ------------------
--- Every monitor at its preferred mode, placed automatically. For a fixed layout put
--- lines like: hl.monitor({ output = "DP-1", mode = "1920x1080@60", position = "0x0", scale = 1 })
--- in local.lua (see the end of this file; names from `hyprctl monitors`).
+-- Every monitor at its preferred mode, placed automatically, unless the GUI's Displays
+-- tab has saved a layout. Anything more special goes in local.lua (end of this file).
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+-- Layout from the Displays tab of the GUI (empty until you arrange screens there).
+for _, m in ipairs(S.monitors or {}) do hl.monitor(m) end
 
 --------------------------------------
 ---- HARDWARE DETECTION (portable) ----
@@ -315,6 +316,14 @@ for i = 1, 10 do
     local key = i % 10
     bind("CTRL + ALT + " .. key,   hl.dsp.focus({ workspace = i }),                       "Go to workspace " .. i)
     bind("CTRL + SUPER + " .. key, hl.dsp.window.move({ workspace = i, follow = false }), "Send window to workspace " .. i)
+end
+
+--------------------------
+---- CUSTOM SHORTCUTS ----
+--------------------------
+-- From the Shortcuts tab of the GUI.
+for _, sc in ipairs(S.shortcuts or {}) do
+    bind(sc.keys, exec(sc.cmd), sc.desc)
 end
 
 ---------------------

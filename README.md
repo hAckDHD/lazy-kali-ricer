@@ -6,7 +6,9 @@ Rice Hyprland on Kali from a GUI. Pick your apps, a theme, a wallpaper and clipb
 options, press **Apply**. No config files to edit.
 
 - **Finds your programs.** Terminal, browser, file manager, music player: pick from what is installed.
-- **Themes.** Six ready ones, or build your own: outline colour, thickness and animated effects.
+- **Themes.** Six ready ones, or build your own: outline colour, thickness and animated effects. Save yours under a name.
+- **Screen layout by drag and drop.** Arrange your monitors, with an Identify button.
+- **Your own shortcuts.** Press a key combination, give it a command.
 - **Get more apps.** Tick common terminals, browsers, file managers and players to install them.
 - **Your wallpaper.** One image, a plain colour, or a folder that rotates on a timer or a key.
 - **Adapts to the machine.** Laptop or desktop, AMD or Intel CPU, AMD, NVIDIA or Intel graphics.
@@ -27,6 +29,14 @@ It sets up Hyprland (Lua config), Waybar, wofi, mako, hyprlock and, on laptops, 
 **Apps:** pick from the programs found on your system.
 
 ![Apps tab](docs/screenshots/apps.png)
+
+**Displays:** drag the screens to match your desk.
+
+![Displays tab](docs/screenshots/displays.png)
+
+**Shortcuts:** press a key combination, give it a command.
+
+![Shortcuts tab](docs/screenshots/shortcuts.png)
 
 **Get apps:** install common programs with a tick.
 
@@ -61,8 +71,10 @@ Needs a Hyprland build with Lua config support (Kali's `hyprland` package has it
 | Tab | What you choose |
 |-----|-----------------|
 | **Apps** | Terminal, browser, file manager, music, calculator, task manager. The lists show what is installed on your system (Flatpaks included); "Rediscover installed programs" rescans after you install something. You can type a custom command or pick None. Also the screenshot tool (Flameshot or grim + slurp), keyboard layout, and whether the shortcut list opens at login. |
+| **Displays** | Drag your screens into place; they snap together. Pick a resolution per screen. Identify shows each screen's number on the screen itself. |
+| **Shortcuts** | Your own keyboard shortcuts: press the keys, type the command. They join the Super+K list. |
 | **Get apps** | Common programs for each job (Kitty, Alacritty, Nemo, mpv …). Tick, install, and they appear in the Apps tab. |
-| **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. |
+| **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
 | **Debug** | Logging switch and a button that saves a report. |
@@ -72,7 +84,7 @@ Needs a Hyprland build with Lua config support (Kali's `hyprland` package has it
 
 `hAckDHD's theme` (neon green + purple, chasing light), `Kali Dragon`, `Synthwave`,
 `Blood Moon`, `RGB Rig`, `Ghost`. Themes are colours and style only; they ship no images.
-Add your own in `THEMES` in `lkr/core.py`.
+Your saved themes live in `~/.config/lazy-kali-ricer/themes.json`.
 
 ### Outline effects
 
@@ -187,16 +199,11 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `config/` | Config files, copied to `~/.config` on Apply with the theme colours filled in |
 | `~/.config/lazy-kali-ricer/settings.json` | Your choices |
 | `~/.config/hypr/settings.lua` | The same choices, as read by `hyprland.lua` |
-
 | `~/.config/hypr/local.lua` | Optional, yours. Loaded last; Apply and Uninstall never touch it. |
 
-Monitors are placed automatically. For a fixed layout, extra keybinds or window rules,
-create `~/.config/hypr/local.lua`:
-
-```lua
-hl.monitor({ output = "DP-1",     mode = "1920x1080@60", position = "0x0",    scale = 1 })
-hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@60", position = "1920x0", scale = 1 })
-```
+Monitors are placed automatically until you arrange them in the Displays tab. For extra
+keybinds, window rules or anything else the GUI does not cover, create
+`~/.config/hypr/local.lua`; it is plain Hyprland Lua.
 
 ## Licence
 
