@@ -1,5 +1,7 @@
 # lazy-kali-ricer
 
+*This is vibe-coded with fable 5.2. The goal was to see how well the tool worked and im happy*
+
 Rice Hyprland on Kali from a GUI. Pick your apps, a theme, a wallpaper and clipboard
 options, press **Apply**. No config files to edit.
 
@@ -43,7 +45,7 @@ It sets up Hyprland (Lua config), Waybar, wofi, mako, hyprlock and, on laptops, 
 ## Install
 
 ```bash
-git clone <repo-url> lazy-kali-ricer
+git clone https://github.com/hAckDHD/lazy-kali-ricer lazy-kali-ricer
 cd lazy-kali-ricer
 ./install.sh
 ```
