@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""lazy-kali-ricer: rice Hyprland from a GUI.
+"""lazy-kali-ricer: rice Hyprland from a GUI, and keep your apps, tools and browser setup in a kit.
 
   lazy-kali-ricer                 Open the GUI.
   lazy-kali-ricer apply           Write the configs from the saved settings (no GUI).

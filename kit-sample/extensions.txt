@@ -1,0 +1,8 @@
+# Extra browser extensions, on top of the ones lazy-kali-ricer already lists.
+# One per line: the Chrome Web Store id, then # and a name of your choice.
+# The id is the last part of the extension's store address:
+#   https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh
+#
+# Remove the leading "# " from the example to use it.
+
+# ddkjiahejlhfcafbddmgiahcphecmpfh  # uBlock Origin Lite

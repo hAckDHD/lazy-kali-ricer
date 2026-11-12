@@ -94,13 +94,98 @@ ROLES = {
 CATALOG = {
     "terminal": [("Kitty", "kitty"), ("Alacritty", "alacritty"), ("Foot", "foot"), ("QTerminal", "qterminal"),
                  ("Xfce Terminal", "xfce4-terminal"), ("Konsole", "konsole")],
-    "browser": [("Firefox ESR", "firefox-esr"), ("Chromium", "chromium")],
+    "browser": [("Firefox ESR", "firefox-esr"), ("Chromium", "chromium"), ("Brave", "brave-browser"),
+                ("Tor Browser", "torbrowser-launcher")],
     "files": [("Thunar", "thunar"), ("Nemo", "nemo"), ("PCManFM", "pcmanfm"), ("Dolphin", "dolphin"), ("Files (Nautilus)", "nautilus")],
-    "music": [("VLC", "vlc"), ("mpv", "mpv"), ("Rhythmbox", "rhythmbox"), ("Audacious", "audacious"), ("Strawberry", "strawberry")],
+    "music": [("VLC", "vlc"), ("mpv", "mpv"), ("Rhythmbox", "rhythmbox"), ("Audacious", "audacious"), ("Strawberry", "strawberry"),
+              ("Spotify", "spotify-client"), ("Amazon Music (web app)", "web:amazon-music"),
+              ("YouTube Music (web app)", "web:youtube-music")],
     "calculator": [("Galculator", "galculator"), ("GNOME Calculator", "gnome-calculator"), ("Qalculate!", "qalculate-gtk"),
                    ("MATE Calculator", "mate-calc")],
     "monitor": [("Xfce Task Manager", "xfce4-taskmanager"), ("GNOME System Monitor", "gnome-system-monitor"),
                 ("MATE System Monitor", "mate-system-monitor"), ("LXTask", "lxtask")],
+}
+# More to install from the Get apps tab, without a keyboard shortcut of their own. heading -> [(name, apt package)]
+EXTRAS = {
+    "Code editor": [("VS Code (Microsoft)", "code"), ("VSCodium (no Microsoft telemetry or branding)", "codium")],
+    "Notes and text editors": [("Obsidian", "obsidian"), ("Sublime Text", "sublime-text"), ("Joplin", "joplin"),
+                               ("CherryTree", "cherrytree")],
+    "Screenshots and recording": [("Flameshot", "flameshot"), ("grim (plain capture)", "grim"), ("slurp (region picker)", "slurp"),
+                                  ("Swappy (annotate)", "swappy"), ("Ksnip", "ksnip"), ("OBS Studio", "obs-studio"),
+                                  ("wf-recorder", "wf-recorder")],
+    # Discord has one official app. Vesktop and WebCord are open-source apps that load the real discord.com;
+    # nothing here is a look-alike site or a relay.
+    "Chat": [("Discord (official)", "discord"), ("Vesktop (Discord with Vencord built in)", "vesktop"),
+             ("WebCord (Discord, privacy-hardened)", "webcord"), ("Signal", "signal-desktop"),
+             ("Element (Matrix)", "element-desktop"), ("Nheko (Matrix)", "nheko"),
+             ("WasIstLos (WhatsApp, unofficial)", "wasistlos"), ("Telegram", "telegram-desktop")],
+    "Everyday": [("LibreOffice", "libreoffice"), ("GIMP", "gimp"), ("Thunderbird", "thunderbird"), ("KeePassXC", "keepassxc"),
+                 ("qBittorrent", "qbittorrent"), ("Remmina (remote desktop)", "remmina"), ("btop", "btop"),
+                 ("fastfetch", "fastfetch"), ("Timeshift (system snapshots)", "timeshift"), ("GParted", "gparted")],
+    "Wordlists": [("SecLists", "seclists")],
+}
+# Services with no Linux app of their own: the real site in its own window, opened by a browser you have.
+# "web:<key>" in the catalog -> (name, address, icon)
+WEBAPPS = {
+    "amazon-music": ("Amazon Music", "https://music.amazon.com/", "amazon"),
+    "youtube-music": ("YouTube Music", "https://music.youtube.com/", "youtube"),
+}
+WEBAPP_BROWSERS = ["brave-browser", "chromium", "google-chrome"]  # the ones with an --app window mode
+LAUNCHERS = os.path.join(HOME, ".local", "share", "applications")
+# Icon-theme names to try for a package, best first, when the package name itself is not one.
+ICONS = {"spotify-client": "spotify-client spotify", "web:amazon-music": "amazon-music amazon multimedia-audio-player",
+         "web:youtube-music": "youtube-music youtube multimedia-audio-player",
+         "firefox-esr": "firefox", "torbrowser-launcher": "torbrowser", "code": "vscode visual-studio-code",
+         "codium": "vscodium visual-studio-code", "xfce4-terminal": "org.xfce.terminal",
+         "xfce4-taskmanager": "org.xfce.taskmanager", "nautilus": "org.gnome.Nautilus",
+         "gnome-calculator": "org.gnome.Calculator", "qalculate-gtk": "qalculate",
+         "gnome-system-monitor": "org.gnome.SystemMonitor", "mate-system-monitor": "utilities-system-monitor",
+         "mate-calc": "accessories-calculator", "obs-studio": "com.obsproject.Studio obs",
+         "wasistlos": "com.github.xeco23.WasIstLos whatsapp", "telegram-desktop": "telegram",
+         "libreoffice": "libreoffice-startcenter", "remmina": "org.remmina.Remmina", "grim": "applets-screenshooter",
+         "slurp": "applets-screenshooter", "swappy": "swappy applets-screenshooter", "wf-recorder": "media-record",
+         "seclists": "text-x-generic", "konsole": "utilities-terminal", "foot": "foot utilities-terminal",
+         "dolphin": "system-file-manager", "pcmanfm": "system-file-manager", "thunar": "org.xfce.thunar",
+         "strawberry": "strawberry multimedia-audio-player", "joplin": "joplin accessories-text-editor",
+         "vesktop": "vesktop discord", "webcord": "webcord discord", "nheko": "nheko internet-chat",
+         "btop": "btop utilities-system-monitor", "fastfetch": "utilities-terminal"}
+# Apps whose maker publishes a .deb but no apt repository: package -> download address,
+# or "github:owner/repo" for the newest release there.
+DEBS = {
+    "discord": "https://discord.com/api/download?platform=linux&format=deb",
+    "vesktop": "github:Vencord/Vesktop",
+    "webcord": "github:SpacingBat3/WebCord",
+}
+VENCORD_CLI = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
+DISCORD_DIR = "/usr/share/discord/resources"
+# Packages that live in their maker's own apt repository, added when you install them:
+# package -> (signing key URL, key file, sources line, sources file, extra root step or "")
+REPOS = {
+    "brave-browser": ("https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg",
+                      "/usr/share/keyrings/brave-browser-archive-keyring.gpg",
+                      "https://brave-browser-apt-release.s3.brave.com/ stable main",
+                      "/etc/apt/sources.list.d/brave-browser-release.list", ""),
+    # The package would otherwise add a second, clashing entry for the same repository.
+    "code": ("https://packages.microsoft.com/keys/microsoft.asc", "/usr/share/keyrings/microsoft-vscode.asc",
+             "https://packages.microsoft.com/repos/code stable main", "/etc/apt/sources.list.d/microsoft-vscode.list",
+             "echo code code/add-microsoft-repo boolean false | debconf-set-selections"),
+    "codium": ("https://gitlab.com/paulcarroty/vscodium-deb-rpm-repo/raw/master/pub.gpg",
+               "/usr/share/keyrings/vscodium-archive-keyring.asc",
+               "https://download.vscodium.com/debs vscodium main", "/etc/apt/sources.list.d/vscodium.list", ""),
+    "sublime-text": ("https://download.sublimetext.com/sublimehq-pub.gpg", "/usr/share/keyrings/sublimehq-pub.asc",
+                     "https://download.sublimetext.com/ apt/stable/", "/etc/apt/sources.list.d/sublime-text.list", ""),
+    "signal-desktop": ("https://updates.signal.org/desktop/apt/keys.asc", "/usr/share/keyrings/signal-desktop-keyring.asc",
+                       "https://updates.signal.org/desktop/apt xenial main", "/etc/apt/sources.list.d/signal-desktop.list", ""),
+    "element-desktop": ("https://packages.element.io/debian/element-io-archive-keyring.gpg",
+                        "/usr/share/keyrings/element-io-archive-keyring.gpg",
+                        "https://packages.element.io/debian/ default main", "/etc/apt/sources.list.d/element-io.list", ""),
+    # Spotify signs with a new key about once a year; when installs start failing, update the key id here.
+    "spotify-client": ("https://download.spotify.com/debian/pubkey_5384CE82BA52C83A.gpg",
+                       "/usr/share/keyrings/spotify-5384CE82BA52C83A.gpg",
+                       "https://repository.spotify.com stable non-free", "/etc/apt/sources.list.d/spotify.list", ""),
+    "gh": ("https://cli.github.com/packages/githubcli-archive-keyring.gpg",
+           "/usr/share/keyrings/githubcli-archive-keyring.gpg",
+           "https://cli.github.com/packages stable main", "/etc/apt/sources.list.d/github-cli.list", ""),
 }
 NEEDED = ["Hyprland", "waybar", "wofi", "mako", "swaybg", "hyprlock", "cliphist", "wl-paste", "grim", "slurp", "jq"]
 
@@ -190,10 +275,13 @@ def hardware():
     return "%s CPU, %s graphics, %s" % (cpu, " + ".join(gpus), "laptop" if laptop else "desktop")
 
 
-def catalog_state():
-    """{package: "installed" | "available" | "missing"} for every catalog package."""
-    packages = [pkg for common in CATALOG.values() for _name, pkg in common]
+def package_state(packages):
+    """{package: "installed" | "available" | "missing"}. "available" includes packages whose
+    repository gets added on install (REPOS) or that are downloaded from their maker (DEBS)."""
+    web = [p for p in packages if p.startswith("web:")]
+    packages = [p for p in packages if p not in web]
     state, name = dict.fromkeys(packages, "missing"), None
+    state.update((p, "installed" if os.path.exists(_launcher(p[4:])) else "available") for p in web)
     for line in _quiet("apt-cache", "policy", *packages).splitlines():
         if not line.startswith(" "):
             name = line.rstrip(":")
@@ -201,22 +289,169 @@ def catalog_state():
             state[name] = "installed"
         elif line.strip().startswith("Candidate:") and "(none)" not in line and state.get(name) == "missing":
             state[name] = "available"
+    for pkg in packages:
+        if state[pkg] == "missing" and (pkg in REPOS or pkg in DEBS):
+            state[pkg] = "available"
     return state
 
 
+def catalog_state():
+    """package_state() for every catalog package."""
+    return package_state([pkg for common in list(CATALOG.values()) + list(EXTRAS.values()) for _name, pkg in common])
+
+
+DIALOGS = False  # the GUI sets this: ask for the password in a dialog even when started from a terminal
+AGENT = "/usr/libexec/hyprpolkitagent"
+
+
+def _password_dialog():
+    """True when a polkit agent is there to show a password dialog; starts ours if none is running."""
+    names = "hyprpolkitagent|polkit-gnome-au|polkit-kde-auth|polkit-mate-auth|lxpolkit|xfce-polkit|lxqt-policykit"
+    running = lambda: subprocess.run(["pgrep", "-f", names], capture_output=True).returncode == 0
+    if not running() and os.path.exists(AGENT) and os.environ.get("WAYLAND_DISPLAY"):
+        _spawn(AGENT)
+        time.sleep(1.5)
+    return running()
+
+
+def _root(script):
+    """Run a shell script as root. The GUI asks in a password dialog; a terminal command asks with sudo."""
+    tty = sys.stdin.isatty()
+    tool = "pkexec" if (DIALOGS and _password_dialog()) or not tty else "sudo"
+    return subprocess.run([tool, "sh", "-c", script]).returncode == 0
+
+
 def _apt(action, packages):
-    """apt-get install/remove with an admin prompt: sudo in a terminal, a polkit dialog otherwise."""
-    return subprocess.run(["sudo" if sys.stdin.isatty() else "pkexec", "apt-get", action, "-y", *packages]).returncode == 0
+    """apt-get install/remove with an admin prompt."""
+    return _root("apt-get %s -y %s" % (action, shlex.join(packages)))
+
+
+def _launcher(key):
+    return os.path.join(LAUNCHERS, "lazy-kali-ricer-%s.desktop" % key)
+
+
+def add_webapp(key):
+    """Give a web-only service its own launcher: the real site in a window of its own. Returns True when
+    done, False when no browser that can do it is installed."""
+    name, url, icon = WEBAPPS[key]
+    browser = next((b for b in WEBAPP_BROWSERS if shutil.which(b)), "")
+    if not browser:
+        return False
+    os.makedirs(LAUNCHERS, exist_ok=True)
+    with open(_launcher(key), "w") as f:
+        f.write("[Desktop Entry]\nType=Application\nName=%s\nComment=%s in its own window\n"
+                "Exec=%s --app=%s\nIcon=%s\nCategories=AudioVideo;Audio;Music;Player;\n"
+                % (name, url.split("/")[2], browser, url, icon))
+    return True
+
+
+def _fetch(url, suffix=""):
+    """Download to a temporary file anyone can read (apt reads it as its own user). Returns the path."""
+    import tempfile
+    import urllib.request
+
+    ask = urllib.request.Request(url, headers={"User-Agent": "lazy-kali-ricer"})
+    with urllib.request.urlopen(ask, timeout=60) as reply, tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        shutil.copyfileobj(reply, tmp)
+    os.chmod(tmp.name, 0o644)
+    return tmp.name
+
+
+def _no_candidate(pkg):
+    """True when apt has nothing to install under this name."""
+    return "Candidate: (none)" in (_quiet("apt-cache", "policy", pkg) or "Candidate: (none)")
+
+
+def _deb_url(pkg, arch):
+    source = DEBS[pkg]
+    if not source.startswith("github:"):
+        return source
+    listing = _fetch("https://api.github.com/repos/%s/releases/latest" % source[7:])
+    try:
+        with open(listing) as f:
+            assets = json.load(f).get("assets", [])
+    finally:
+        os.remove(listing)
+    for asset in assets:
+        if asset["name"].endswith("%s.deb" % arch):
+            return asset["browser_download_url"]
+    raise OSError("%s has no %s package" % (pkg, arch))
 
 
 def install_packages(packages):
-    """Install apps picked in the GUI and remember them, so uninstall can offer to remove them."""
-    if not _apt("install", packages):
+    """Install apps picked in the GUI and remember them, so uninstall can offer to remove them.
+    Adds the maker's apt repository (REPOS) or downloads the maker's .deb (DEBS) where apt has none."""
+    arch = _quiet("dpkg", "--print-architecture").strip() or "amd64"
+    steps, temps, targets = [], [], []
+    try:
+        for pkg in packages:
+            if pkg in DEBS and _no_candidate(pkg):
+                temps.append(_fetch(_deb_url(pkg, arch), ".deb"))
+                targets.append(temps[-1])
+                continue
+            targets.append(pkg)
+            if pkg in REPOS and _no_candidate(pkg):
+                key_url, key_file, source, list_file, extra = REPOS[pkg]
+                temps.append(_fetch(key_url))
+                line = "deb [arch=%s signed-by=%s] %s" % (arch, key_file, source)
+                steps += ["install -D -m 644 %s %s" % (shlex.quote(temps[-1]), shlex.quote(key_file)),
+                          "echo %s > %s" % (shlex.quote(line), shlex.quote(list_file))] + ([extra] if extra else [])
+        if steps:
+            steps.append("apt-get update")
+        ok = _root(" && ".join(steps + ["DEBIAN_FRONTEND=noninteractive apt-get install -y %s" % shlex.join(targets)]))
+    except (OSError, ValueError):  # a download failed
+        ok = False
+    for path in temps:
+        os.remove(path)
+    if not ok:
         return False
     os.makedirs(OWN, exist_ok=True)
     with open(PACKAGES, "a") as f:
         f.write("".join("\n%s" % p for p in packages))
     return True
+
+
+def _discord_resources():
+    """Folder holding Discord's app.asar: in your home for current Discord (it downloads itself there on
+    first start), under /usr/share for older packages. "" when there is none yet."""
+    import glob
+
+    mine = sorted(glob.glob(os.path.join(CFG, "discord", "app-*", "resources")), key=os.path.getmtime)
+    return mine[-1] if mine else DISCORD_DIR if os.path.isdir(DISCORD_DIR) else ""
+
+
+def vencord_state():
+    """"" = Discord not installed, "unopened" = installed but never started (nothing to patch yet),
+    "plain" = ready for Vencord, "patched" = Vencord is in."""
+    if not shutil.which("discord"):
+        return ""
+    where = _discord_resources()
+    if not where:
+        return "unopened"
+    return "patched" if os.path.exists(os.path.join(where, "_app.asar")) else "plain"
+
+
+def discord_running():
+    return subprocess.run(["pgrep", "-x", "Discord"], capture_output=True).returncode == 0
+
+
+def vencord(action="install"):
+    """Add Vencord to the official Discord app (or "uninstall" it) with Vencord's own installer.
+    Discord must be closed. A Discord update can undo it; then run this again."""
+    try:
+        cli = _fetch(VENCORD_CLI)
+    except OSError:
+        return False
+    os.chmod(cli, 0o755)
+    try:
+        if _discord_resources().startswith(HOME):
+            return subprocess.run([cli, "-" + action, "-branch", "stable"], capture_output=True).returncode == 0
+        # Older Discord lives in /usr/share: the installer needs root, but keeps Vencord's files in your home.
+        env = "env SUDO_USER=%s SUDO_UID=%d SUDO_GID=%d HOME=%s XDG_CONFIG_HOME=%s" % (
+            shlex.quote(getpass.getuser()), os.getuid(), os.getgid(), shlex.quote(HOME), shlex.quote(CFG))
+        return _root("%s %s -%s -branch stable" % (env, shlex.quote(cli), action))
+    finally:
+        os.remove(cli)
 
 
 def current_binds():
@@ -560,8 +795,16 @@ def uninstall_items():
         items.append(dict(kind="path", target=CACHE, label="Delete debug logs and reports in %s" % short(CACHE), on=True))
     if os.path.isdir(OWN):
         items.append(dict(kind="path", target=OWN, label="Delete saved settings and themes in %s" % short(OWN), on=True))
+    for key, (name, _url, _icon) in WEBAPPS.items():
+        if os.path.exists(_launcher(key)):
+            items.append(dict(kind="path", target=_launcher(key), label="Delete the %s launcher" % name, on=True))
     if os.path.isdir(os.path.join(HOME, ".cache", "cliphist")):
         items.append(dict(kind="clipboard", target="", label="Wipe clipboard history", on=False))
+    from . import kit
+
+    for browser, path in kit.policy_files():
+        items.append(dict(kind="policy", target=path, on=True,
+                          label="Stop installing extensions into %s  (delete %s; asks for your password)" % (browser, path)))
     try:
         with open(PACKAGES) as f:
             packages = f.read().split()
@@ -569,7 +812,7 @@ def uninstall_items():
         packages = []
     for name in packages:
         if _quiet("dpkg-query", "-W", "-f=${Status}", name).endswith(" installed"):
-            items.append(dict(kind="package", target=name, label="Remove package %s  (installed by install.sh)" % name, on=False))
+            items.append(dict(kind="package", target=name, label="Remove package %s  (installed by lazy-kali-ricer)" % name, on=False))
     return items
 
 
@@ -584,6 +827,10 @@ def uninstall(items):
                 left = [p for p in f.read().split() if p not in packages]
             with open(PACKAGES, "w") as f:
                 f.write("\n".join(left))
+    policies = [i["target"] for i in items if i["kind"] == "policy"]
+    if policies:
+        ok = _root("rm -f %s" % shlex.join(policies))
+        log.append(("Removed extension lists: %s" if ok else "Extension lists NOT removed (cancelled or failed): %s") % " ".join(policies))
     for item in sorted(items, key=lambda i: i["target"] == OWN):  # settings folder last: it holds the manifest
         kind, target = item["kind"], item["target"]
         if kind == "file":
@@ -597,7 +844,7 @@ def uninstall(items):
             shutil.rmtree(target) if os.path.isdir(target) and not os.path.islink(target) else os.remove(target)
         elif kind == "clipboard":
             wipe_clipboard()
-        if kind != "package":
+        if kind not in ("package", "policy"):
             log.append("Done: %s" % item["label"])
     if managed_gone and os.path.isfile(MANIFEST):  # some files kept: remember only those
         kept = {p: b for p, b in _manifest().items() if p not in managed_gone}

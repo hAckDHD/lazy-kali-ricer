@@ -6,7 +6,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 say() { printf '\033[1;35m::\033[0m %s\n' "$*"; }
 
-PKGS="hyprland hyprlock waybar mako-notifier wofi swaybg cliphist wl-clipboard grim slurp jq flameshot
+PKGS="hyprland hyprlock waybar mako-notifier wofi swaybg cliphist wl-clipboard grim slurp jq flameshot git
       pavucontrol lm-sensors bluez network-manager libnotify-bin python3-gi python3-gi-cairo gir1.2-gtk-3.0
       xdg-desktop-portal-hyprland fonts-font-awesome fonts-hack"
 # Laptop (battery present): idle manager and backlight keys.

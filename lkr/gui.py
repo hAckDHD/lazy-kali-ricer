@@ -4,14 +4,15 @@ import os
 import re
 import shutil
 import threading
+import types
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
-from . import core  # noqa: E402
+from . import core, kit  # noqa: E402
 
 NONE, CUSTOM_CMD = "", "__custom__"
 
@@ -39,7 +40,8 @@ class Ricer(Gtk.Window):
         book = Gtk.Notebook()
         outer.pack_start(book, True, True, 0)
         for title, build in (("Apps", self.page_apps), ("Displays", self.page_displays), ("Shortcuts", self.page_shortcuts),
-                             ("Get apps", self.page_get_apps), ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
+                             ("Get apps", self.page_get_apps), ("Browsers & tools", self.page_kit),
+                             ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
                              ("Clipboard", self.page_clipboard), ("Debug", self.page_debug),
                              ("Uninstall", self.page_uninstall)):
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=14)
@@ -77,6 +79,21 @@ class Ricer(Gtk.Window):
         lbl = Gtk.Label(label=text, xalign=0, wrap=True)
         lbl.get_style_context().add_class("dim-label")
         page.pack_start(lbl, False, False, 0)
+
+    def head(self, page, text):
+        lbl = Gtk.Label(label=text, xalign=0)
+        lbl.get_style_context().add_class("heading")
+        page.pack_start(lbl, False, False, 0)
+
+    def background(self, button, work, done):
+        """Run work() off the GUI thread (it may wait for a password), then done(result) back on it."""
+        button.set_sensitive(False)
+
+        def finish(result):
+            button.set_sensitive(True)
+            done(result)
+
+        threading.Thread(target=lambda: GLib.idle_add(finish, work()), daemon=True).start()
 
     def check(self, page, text, key):
         box = Gtk.CheckButton(label=text, active=bool(self.s[key]))
@@ -382,7 +399,11 @@ class Ricer(Gtk.Window):
         return True
 
     # ----- Get apps -----
-    def page_get_apps(self, page):
+    def page_get_apps(self, outer):
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        scroll.add(page)
+        outer.pack_start(scroll, True, True, 0)
         self.note(page, "Common programs for each job. Tick the ones you want and install them; "
                         "they then show up in the Apps tab. Already installed ones are greyed out.")
         self.catalog = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -390,30 +411,95 @@ class Ricer(Gtk.Window):
         self.get_button = Gtk.Button(label="Install ticked apps", halign=Gtk.Align.START)
         self.get_button.connect("clicked", self.on_get_apps)
         page.pack_start(self.get_button, False, False, 0)
+
+        self.head(page, "Vencord on Discord")
+        self.note(page, "Vencord adds plugins and themes to the official Discord app. Discord downloads itself the "
+                        "first time it opens, so: install Discord above, open it once, close it, then add Vencord. "
+                        "A Discord update can remove it; add it again. Client mods are against Discord's terms; "
+                        "Vesktop above is the same thing as its own app.")
+        row = Gtk.Box(spacing=8)
+        self.vencord_buttons = {}
+        for key, label in (("open", "Open Discord"), ("install", "Add Vencord"), ("uninstall", "Remove Vencord")):
+            button = Gtk.Button(label=label)
+            button.connect("clicked", self.on_vencord, key)
+            self.vencord_buttons[key] = button
+            row.pack_start(button, False, False, 0)
+        self.vencord_note = Gtk.Label(xalign=0)
+        row.pack_start(self.vencord_note, False, False, 0)
+        page.pack_start(row, False, False, 0)
         self.list_catalog()
+
+    def app_icon(self, pkg):
+        theme = Gtk.IconTheme.get_default()
+        for name in core.ICONS.get(pkg, "").split() + [pkg, "application-x-executable"]:
+            if theme.has_icon(name):
+                return Gtk.Image.new_from_icon_name(name, Gtk.IconSize.LARGE_TOOLBAR)
+        return Gtk.Image()
 
     def list_catalog(self):
         for child in self.catalog.get_children():
             self.catalog.remove(child)
         state, self.wanted = core.catalog_state(), []  # (checkbox, package)
-        for role, common in core.CATALOG.items():
-            head = Gtk.Label(label=core.ROLES[role][0], xalign=0)
+        groups = [(core.ROLES[role][0], common) for role, common in core.CATALOG.items()] + list(core.EXTRAS.items())
+        for title, common in groups:
+            head = Gtk.Label(label=title, xalign=0)
             head.get_style_context().add_class("heading")
             self.catalog.pack_start(head, False, False, 0)
             line = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6)
             for name, pkg in common:
                 if state[pkg] == "missing":  # not in this system's package sources
                     continue
-                box = Gtk.CheckButton(label=name + ("  ✓" if state[pkg] == "installed" else ""))
+                box = Gtk.CheckButton()
+                inner = Gtk.Box(spacing=6)
+                inner.pack_start(self.app_icon(pkg), False, False, 0)
+                inner.pack_start(Gtk.Label(label=name + ("  ✓" if state[pkg] == "installed" else "")), False, False, 0)
+                box.add(inner)
                 box.set_sensitive(state[pkg] == "available")
                 self.wanted.append((box, pkg))
                 line.add(box)
             self.catalog.pack_start(line, False, False, 0)
         self.catalog.show_all()
+        self.fill_vencord()
+
+    def fill_vencord(self):
+        vencord = core.vencord_state()
+        self.vencord_note.set_text({"": "Discord is not installed.", "unopened": "Open Discord once so it can download itself.",
+                                    "plain": "Discord is ready for Vencord.", "patched": "Vencord is on Discord  ✓"}[vencord])
+        for key, button in self.vencord_buttons.items():
+            button.set_sensitive({"open": vencord != "", "install": vencord in ("plain", "patched"),
+                                  "uninstall": vencord == "patched"}[key])
+
+    def on_vencord(self, button, key):
+        if key == "open":
+            core._spawn("discord")
+            self.status.set_text("Discord is starting. Let it finish updating, close it, then press Add Vencord.")
+            GLib.timeout_add_seconds(20, lambda: self.fill_vencord())  # its files appear after the first update
+            return
+        if core.discord_running():
+            self.status.set_text("Discord is open: close it (also from the tray), then press the button again.")
+            return
+        self.status.set_text("Working on Discord …")
+
+        def done(ok):
+            self.fill_vencord()
+            self.status.set_text("Failed. Is Discord closed, and are you online?" if not ok else
+                                 "Vencord added. Open Discord: its settings now have a Vencord section." if key == "install" else
+                                 "Vencord removed from Discord.")
+
+        self.background(button, lambda: core.vencord(key), done)
 
     def on_get_apps(self, _button):
         packages = [pkg for box, pkg in self.wanted if box.get_active()]
         if not packages:
+            return
+        web = [p for p in packages if p.startswith("web:")]
+        packages = [p for p in packages if p not in web]
+        failed = [core.WEBAPPS[p[4:]][0] for p in web if not core.add_webapp(p[4:])]
+        if failed:
+            self.status.set_text("%s needs Brave, Chromium or Chrome: install one above first." % ", ".join(failed))
+        if not packages:
+            self.list_catalog()
+            self.fill_apps()
             return
         self.get_button.set_sensitive(False)
         self.status.set_text("Installing %s … (enter your password in the dialog)" % ", ".join(packages))
@@ -426,6 +512,358 @@ class Ricer(Gtk.Window):
                 self.status.set_text("Install cancelled or failed: %s" % ", ".join(packages))
 
         threading.Thread(target=lambda: GLib.idle_add(done, core.install_packages(packages)), daemon=True).start()
+
+    # ----- Browsers & tools -----
+    def page_kit(self, outer):
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        scroll.add(page)
+        outer.pack_start(scroll, True, True, 0)
+
+        self.head(page, "Your kit")
+        self.note(page, "One folder with your tool list (tools.txt), your scripts (tools/), bookmarks (bookmarks.json) "
+                        "and extensions (extensions.txt). Keep it in a private GitHub repository: after a reinstall, "
+                        "\"Get from GitHub\" brings it back.")
+        row = Gtk.Box(spacing=8)
+        self.kit_folder = Gtk.FileChooserButton(title="Choose your kit folder", action=Gtk.FileChooserAction.SELECT_FOLDER,
+                                                hexpand=True)
+        self.kit_folder.connect("file-set", lambda w: self.use_kit(w.get_filename()))
+        sample = Gtk.Button(label="Add sample files")
+        sample.connect("clicked", self.on_kit_sample)
+        row.pack_start(self.kit_folder, True, True, 0)
+        row.pack_start(sample, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        self.note(page, "GitHub: the first time, your browser opens for you to sign in, and you are asked whether "
+                        "the kit goes to a new private repository or one you already have.")
+        row = Gtk.Box(spacing=8)
+        for label, action in (("Get from GitHub", kit.download), ("Upload to GitHub", kit.upload)):
+            button = Gtk.Button(label=label)
+            button.connect("clicked", self.on_kit_git, action)
+            row.pack_start(button, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        row = Gtk.Box(spacing=12)
+        row.pack_start(Gtk.Label(label="Build the kit from this system:", xalign=0), False, False, 0)
+        self.build_parts = []  # (checkbox, key)
+        for key, label, tip in (
+                ("tools", "Tools", "Packages you installed by name, pipx tools, git repositories in ~/tools → tools.txt"),
+                ("scripts", "Scripts", "Your own files and folders in ~/tools → the kit's tools/ folder "
+                                       "(not git checkouts, not files over 5 MB)"),
+                ("exts", "Extensions", "Extensions you added to the ticked browsers → extensions.txt"),
+                ("marks", "Bookmarks", "Bookmarks of the first ticked browser → bookmarks.json (replaces the file)")):
+            box = Gtk.CheckButton(label=label, active=True, tooltip_text=tip)
+            self.build_parts.append((box, key))
+            row.pack_start(box, False, False, 0)
+        build = Gtk.Button(label="Build")
+        build.get_style_context().add_class("suggested-action")
+        build.connect("clicked", self.on_kit_build)
+        row.pack_start(build, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        self.code_box = None
+        # kit.upload / kit.download run off the GUI thread and reach the person through these.
+        self.kit_ui = types.SimpleNamespace(
+            say=lambda text: self.from_thread(self.status.set_text, text),
+            code=lambda code: self.from_thread(self.show_code, code),
+            ask_repo=lambda allow_new: self.from_thread(self.ask_repo, allow_new),
+            confirm=lambda text: self.from_thread(self.confirm, text))
+
+        self.head(page, "Tools")
+        self.tools_note = Gtk.Label(xalign=0, wrap=True)
+        self.tools_note.get_style_context().add_class("dim-label")
+        page.pack_start(self.tools_note, False, False, 0)
+        self.tools_button = Gtk.Button(label="Install tools and scripts from the kit", halign=Gtk.Align.START)
+        self.tools_button.connect("clicked", self.on_kit_tools)
+        page.pack_start(self.tools_button, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        self.find_entry = Gtk.Entry(placeholder_text="Look for a tool by name, e.g. wireshark", hexpand=True)
+        self.find_entry.connect("activate", self.on_kit_find)
+        find = Gtk.Button(label="Search")
+        find.connect("clicked", self.on_kit_find)
+        self.find_add = Gtk.Button(label="Add ticked to tools.txt", sensitive=False)
+        self.find_add.connect("clicked", self.on_kit_find_add)
+        for widget, grow in ((self.find_entry, True), (find, False), (self.find_add, False)):
+            row.pack_start(widget, grow, grow, 0)
+        page.pack_start(row, False, False, 0)
+        self.find_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.find_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, min_content_height=150,
+                                              no_show_all=True)
+        self.find_scroll.add(self.find_list)
+        page.pack_start(self.find_scroll, False, False, 0)
+
+        self.head(page, "Browsers")
+        self.note(page, "Extensions and bookmarks go to the ticked browsers. Brave and Chromium are in the Get apps tab. "
+                        "Firefox and Tor Browser are not covered here.")
+        row, found = Gtk.Box(spacing=14), kit.installed_browsers()
+        self.kit_browsers = []  # (checkbox, name)
+        for name in kit.BROWSERS:
+            box = Gtk.CheckButton(label=name if name in found else name + "  — not installed", active=name in found)
+            box.set_sensitive(name in found)
+            self.kit_browsers.append((box, name))
+            row.pack_start(box, False, False, 0)
+        page.pack_start(row, False, False, 0)
+
+        self.head(page, "Extensions")
+        self.note(page, "The browser installs the ticked ones itself the next time it starts. It then shows "
+                        "\"Managed by your organisation\": that is this list. Untick everything and set again to "
+                        "remove the list. You sign in to each extension yourself.")
+        self.ext_flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4)
+        page.pack_start(self.ext_flow, False, False, 0)
+        self.ext_button = Gtk.Button(label="Set extensions in ticked browsers", halign=Gtk.Align.START)
+        self.ext_button.connect("clicked", self.on_kit_extensions)
+        page.pack_start(self.ext_button, False, False, 0)
+
+        self.head(page, "Bookmarks")
+        self.note(page, "Import replaces the bookmarks of the ticked browsers with the file (close the browser first). "
+                        "The old ones stay next to it as Bookmarks.bak-<time>.")
+        row = Gtk.Box(spacing=8)
+        self.marks_file = Gtk.FileChooserButton(title="Choose a bookmarks file", hexpand=True)
+        load = Gtk.Button(label="Import")
+        load.connect("clicked", self.on_kit_import)
+        for widget, grow in ((self.marks_file, True), (load, False)):
+            row.pack_start(widget, grow, grow, 0)
+        page.pack_start(row, False, False, 0)
+        self.fill_kit()
+
+    def ticked_browsers(self):
+        return [name for box, name in self.kit_browsers if box.get_active()]
+
+    def use_kit(self, folder):
+        if folder:
+            self.s["kit_dir"] = folder
+            kit.set_dir(folder)
+            self.fill_kit()
+
+    def fill_kit(self):
+        """Show what the kit folder holds: tool counts, its extensions, its bookmarks file."""
+        folder = kit.kit_dir(self.s)
+        short = folder.replace(core.HOME, "~")
+        if os.path.isdir(folder):
+            self.kit_folder.set_filename(folder)
+        else:
+            self.kit_folder.set_current_folder(core.HOME)
+        tools = kit.read_tools(folder)
+        if os.path.isfile(os.path.join(folder, "tools.txt")):
+            self.tools_note.set_text("%s/tools.txt: packages %d, pipx tools %d, git repositories %d (cloned into ~/tools). "
+                                     "%s/tools: %d of your own files, put back in ~/tools. What is already there is skipped."
+                                     % (short, len(tools["apt"]), len(tools["pipx"]), len(tools["git"]), short,
+                                        kit.count_scripts(folder)))
+        else:
+            self.tools_note.set_text("No tools.txt in %s yet: \"Add sample files\" puts a template there, or Build makes one. "
+                                     "%s/tools: %d of your own files." % (short, short, kit.count_scripts(folder)))
+        self.tools_button.set_sensitive(any(tools.values()) or kit.count_scripts(folder) > 0)
+        for child in self.ext_flow.get_children():
+            self.ext_flow.remove(child)
+        # Ticked: what the browsers are told to install now, plus what your kit says you want.
+        chosen, self.kit_exts = kit.chosen_extensions() | kit.kit_extension_ids(folder), []  # (checkbox, id)
+        for name, ext_id in kit.extensions(folder):
+            box = Gtk.CheckButton(label=name, active=ext_id in chosen)
+            self.kit_exts.append((box, ext_id))
+            self.ext_flow.add(box)
+        self.ext_flow.show_all()
+        marks = os.path.join(folder, "bookmarks.json")
+        if os.path.isfile(marks):
+            self.marks_file.set_filename(marks)
+
+    def from_thread(self, fn, *args):
+        """Called on a worker thread: run fn on the GUI thread and wait for what it returns."""
+        result, done = [], threading.Event()
+
+        def run():
+            try:
+                result.append(fn(*args))
+            finally:
+                done.set()
+
+        GLib.idle_add(run)
+        done.wait()
+        return result[0] if result else None
+
+    def show_code(self, code):
+        """Sign-in step: open GitHub's page in the browser and show the code to enter there. "" closes it again."""
+        if self.code_box:
+            self.code_box.destroy()
+            self.code_box = None
+        if not code:
+            return
+        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(code, -1)
+        self.open_page(kit.DEVICE_PAGE)
+        box = Gtk.MessageDialog(transient_for=self, modal=False, message_type=Gtk.MessageType.INFO,
+                                buttons=Gtk.ButtonsType.NONE, text="Sign in to GitHub")
+        box.format_secondary_markup(
+            "Your browser is opening <b>github.com/login/device</b>.\nEnter this code there:\n\n"
+            "<span size='xx-large' weight='bold' font_family='monospace'>%s</span>\n\n"
+            "It is on your clipboard already: just paste.\nThis window closes by itself once GitHub confirms." % code)
+        box.add_button("Open the page again", 1)
+        box.add_button("Cancel sign-in", Gtk.ResponseType.CANCEL)
+        box.connect("response", lambda _w, answer: self.open_page(kit.DEVICE_PAGE) if answer == 1 else kit.cancel_sign_in())
+        box.show_all()
+        self.code_box = box
+        self.status.set_text("GitHub sign-in: enter the code %s on the page in your browser. Waiting for you …" % code)
+
+    def open_page(self, url):
+        """Open a web page in the desktop's default browser, or the one picked in the Apps tab."""
+        try:
+            Gio.AppInfo.launch_default_for_uri(url, None)
+        except GLib.Error:
+            if self.s["apps"].get("browser"):
+                core._spawn("%s %s" % (self.s["apps"]["browser"], url))
+
+    def confirm(self, text):
+        ask = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
+                                buttons=Gtk.ButtonsType.OK_CANCEL, text=text)
+        go = ask.run() == Gtk.ResponseType.OK
+        ask.destroy()
+        return go
+
+    def ask_repo(self, allow_new):
+        """Which repository holds the kit: ("new", name), ("existing", "owner/name"), or None when cancelled."""
+        ask = Gtk.Dialog(title="Your kit on GitHub", transient_for=self, modal=True)
+        ask.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Continue", Gtk.ResponseType.OK)
+        ask.set_default_response(Gtk.ResponseType.OK)
+        box = ask.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(14)
+        new = Gtk.RadioButton.new_with_label(None, "New repository: created for you, private")
+        old = Gtk.RadioButton.new_with_label_from_widget(new, "Existing repository: one you already have on GitHub")
+        entry = Gtk.Entry(activates_default=True, width_chars=44)
+        hint = Gtk.Label(xalign=0)
+        hint.get_style_context().add_class("dim-label")
+
+        def picked(*_):
+            entry.set_text("lazy-kali-kit" if new.get_active() else "")
+            hint.set_text("Its name." if new.get_active() else "owner/name, or paste its address from the browser.")
+
+        new.connect("toggled", picked)
+        if allow_new:
+            box.add(new)
+            box.add(old)
+        else:
+            old.set_active(True)
+            box.add(Gtk.Label(label="Which repository holds your kit?", xalign=0))
+        for widget in (entry, hint):
+            box.add(widget)
+        picked()
+        ask.show_all()
+        answer = None
+        while ask.run() == Gtk.ResponseType.OK:
+            text = entry.get_text().strip()
+            if new.get_active() and kit.NEW_NAME.match(text):
+                answer = ("new", text)
+            elif old.get_active() and kit.repo_slug(text):
+                answer = ("existing", kit.repo_slug(text))
+            if answer:
+                break
+            hint.set_text("That is not a repository name. Use letters, digits, - . _"
+                          + ("" if new.get_active() else ", as owner/name."))
+        ask.destroy()
+        return answer
+
+    def on_kit_git(self, button, action):
+        folder = kit.kit_dir(self.s)
+
+        def done(message):
+            self.status.set_text(message)
+            if os.path.isdir(folder):
+                self.use_kit(folder)
+
+        self.background(button, lambda: action(folder, self.kit_ui), done)
+
+    def on_kit_sample(self, _button):
+        folder = kit.kit_dir(self.s)
+        try:
+            added = kit.create_sample(folder)
+        except OSError as e:
+            self.status.set_text("Failed: %s" % e)
+            return
+        self.use_kit(folder)
+        self.status.set_text("%s: %s" % (folder.replace(core.HOME, "~"),
+                                         "added " + ", ".join(added) if added else "the sample files are already there."))
+
+    def on_kit_tools(self, button):
+        folder = kit.kit_dir(self.s)
+        self.status.set_text("Installing your tools … (enter your password in the dialog; cloning can take a while)")
+
+        def done(log):
+            self.status.set_text("\n".join(log[-4:]))
+            self.list_catalog()
+            self.fill_apps()
+
+        self.background(button, lambda: kit.install_tools(folder), done)
+
+    def on_kit_build(self, _button):
+        folder = kit.kit_dir(self.s)
+        parts = {key: box.get_active() for box, key in self.build_parts}
+        if not any(parts.values()):
+            self.status.set_text("Tick what to build: Tools, Scripts, Extensions, Bookmarks.")
+            return
+        try:
+            log = kit.build(folder, self.ticked_browsers(), **parts)
+        except OSError as e:
+            self.status.set_text("Failed: %s" % e)
+            return
+        self.use_kit(folder)
+        self.status.set_text("\n".join(log + ["Kit built in %s. \"Upload to GitHub\" keeps it safe." % folder.replace(core.HOME, "~")]))
+
+    def on_kit_find(self, _widget):
+        for child in self.find_list.get_children():
+            self.find_list.remove(child)
+        listed = kit.read_tools(kit.kit_dir(self.s))["apt"]
+        self.found = []  # (checkbox, package)
+        for name, description, state in kit.search_packages(self.find_entry.get_text()):
+            mark = "  — in tools.txt" if name in listed else "  ✓ installed" if state == "installed" else ""
+            box = Gtk.CheckButton(label="%s%s    %s" % (name, mark, description))
+            box.set_sensitive(name not in listed)
+            self.found.append((box, name))
+            self.find_list.pack_start(box, False, False, 0)
+        if not self.found:
+            self.find_list.pack_start(Gtk.Label(label="No package with that name.", xalign=0), False, False, 0)
+        self.find_add.set_sensitive(bool(self.found))
+        self.find_scroll.show()
+        self.find_list.show_all()
+
+    def on_kit_find_add(self, _button):
+        folder = kit.kit_dir(self.s)
+        try:
+            added = kit.add_tools(folder, "apt", [name for box, name in self.found if box.get_active()])
+        except OSError as e:
+            self.status.set_text("Failed: %s" % e)
+            return
+        self.use_kit(folder)
+        self.on_kit_find(None)
+        self.status.set_text("Added to tools.txt: %s. \"Install tools and scripts from the kit\" installs them."
+                             % ", ".join(added) if added else "Tick a result first.")
+
+    def on_kit_extensions(self, button):
+        browsers, ids = self.ticked_browsers(), [ext_id for box, ext_id in self.kit_exts if box.get_active()]
+        if not browsers:
+            self.status.set_text("Tick a browser first.")
+            return
+
+        def done(ok):
+            self.status.set_text("%s: %s" % (", ".join(browsers), "cancelled or failed." if not ok else
+                                             "%d extensions set. Restart the browser to get them." % len(ids) if ids else
+                                             "extension list removed."))
+            self.fill_kit()
+
+        self.background(button, lambda: kit.set_extensions(browsers, ids), done)
+
+    def on_kit_import(self, _button):
+        path, browsers = self.marks_file.get_filename(), self.ticked_browsers()
+        if not path or not browsers:
+            self.status.set_text("Choose a bookmarks file and tick a browser first.")
+            return
+        try:
+            count = kit.count_bookmarks(kit.load_bookmarks(path))
+            ask = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
+                                    buttons=Gtk.ButtonsType.OK_CANCEL,
+                                    text="Replace the bookmarks in %s?" % ", ".join(browsers))
+            ask.format_secondary_text("%d bookmarks from %s take their place. The current ones are kept as Bookmarks.bak-<time>."
+                                      % (count, os.path.basename(path)))
+            go = ask.run() == Gtk.ResponseType.OK
+            ask.destroy()
+            if go:
+                self.status.set_text("\n".join(kit.import_bookmarks(path, browsers)))
+        except (OSError, ValueError) as e:
+            self.status.set_text("Failed: %s" % e)
 
     # ----- Theme -----
     def page_theme(self, page):
@@ -758,6 +1196,7 @@ class Ricer(Gtk.Window):
 
 
 def main():
+    core.DIALOGS = True
     win = Ricer()
     win.connect("destroy", Gtk.main_quit)
     win.show_all()

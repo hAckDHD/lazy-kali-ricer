@@ -1,0 +1,18 @@
+# Your tool list. "Install tools from tools.txt" in lazy-kali-ricer installs everything here.
+# One line = a kind, then one or more items. Anything after # is a comment.
+# Already-installed entries are skipped, so it is safe to run again.
+#
+#   apt   <package> [package ...]     Kali / Debian packages
+#   pipx  <name> [name ...]           Python command-line tools from PyPI
+#   git   <https url>                 cloned into ~/tools/<repository name>
+#
+# The lines below are examples. Replace them with your own, or let
+# "Build" and the search box in lazy-kali-ricer add lines for you.
+
+apt   tmux jq ripgrep
+apt   pipx git
+apt   seclists          # wordlists, in /usr/share/seclists
+
+pipx  httpie
+
+git   https://github.com/tmux-plugins/tpm

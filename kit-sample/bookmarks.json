@@ -1,0 +1,16 @@
+{
+  "roots": {
+    "bookmark_bar": {
+      "children": [
+        { "name": "Kali docs", "url": "https://www.kali.org/docs/" },
+        {
+          "name": "A folder",
+          "children": [
+            { "name": "Hyprland wiki", "url": "https://wiki.hypr.land/" },
+            { "name": "GitHub", "url": "https://github.com/" }
+          ]
+        }
+      ]
+    }
+  }
+}

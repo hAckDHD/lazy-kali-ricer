@@ -65,7 +65,9 @@ local is_laptop = read_cmd("ls -d /sys/class/power_supply/BAT* 2>/dev/null"):fin
 hl.on("hyprland.start", function()
     hl.exec_cmd("waybar")
     hl.exec_cmd("mako")
-    hl.exec_cmd("systemctl --user start hyprpolkitagent")
+    -- Password dialogs. Started here, not through systemd: as a user service it lands outside this
+    -- login session whenever a second session exists, and polkit then refuses it.
+    hl.exec_cmd("pgrep -x hyprpolkitagent || /usr/libexec/hyprpolkitagent")
     -- Screenshot/screen-share portal. It must start after the session env is exported and
     -- before xdg-desktop-portal, or flameshot's capture hangs and returns an empty image.
     hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE && systemctl --user stop xdg-desktop-portal xdg-desktop-portal-hyprland; systemctl --user start xdg-desktop-portal-hyprland && systemctl --user start xdg-desktop-portal")
