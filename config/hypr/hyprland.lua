@@ -218,7 +218,7 @@ local stamp      = shots .. [[/Screenshot_$(date +%F_%H-%M-%S).png]]
 local toClip     = [[grim -g "$(slurp)" - | wl-copy]]
 
 -- Region to clipboard: Flameshot (editor) when chosen in the GUI, plain grim + slurp otherwise.
--- `flameshot gui` shows a monitor picker on Wayland, so the script passes the focused monitor.
+-- `flameshot gui` shows a monitor picker on Wayland, so the script passes the monitor the mouse is on.
 local region = apps.screenshot == "flameshot" and "~/.config/hypr/scripts/flameshot-region.sh" or toClip
 bind("Print",                exec(region),                                 "Screenshot region to clipboard")
 bind("SUPER + SHIFT + S",    exec(region),                                 "Screenshot region to clipboard")
