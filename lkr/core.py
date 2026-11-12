@@ -219,6 +219,21 @@ def install_packages(packages):
     return True
 
 
+def current_binds():
+    """Every shortcut Hyprland has now, as (keys, what it does), in config order."""
+    try:
+        binds = json.loads(_quiet("hyprctl", "binds", "-j") or "[]")
+    except ValueError:
+        return []
+    rows = []
+    for b in binds:
+        if b.get("description"):
+            key = {"mouse:272": "Left-drag", "mouse:273": "Right-drag"}.get(b["key"], b["key"])
+            mods = [name for bit, name in ((64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT")) if b["modmask"] & bit]
+            rows.append((" + ".join(mods + [key]), b["description"]))
+    return rows
+
+
 def live_monitors():
     """Connected screens as Hyprland has them now: position, mode, and size in layout units."""
     try:

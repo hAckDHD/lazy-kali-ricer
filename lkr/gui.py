@@ -56,7 +56,7 @@ class Ricer(Gtk.Window):
         bottom.pack_start(self.status, True, True, 0)
         bottom.pack_end(apply_btn, False, False, 0)
         outer.pack_start(bottom, False, False, 0)
-        book.connect("switch-page", lambda *_: self.list_uninstall())  # the list changes after an Apply
+        book.connect("switch-page", lambda *_: (self.list_uninstall(), self.list_binds()))  # both change after an Apply
         self.loading = False
 
     # ----- small builders -----
@@ -316,6 +316,28 @@ class Ricer(Gtk.Window):
         page.pack_start(add, False, False, 0)
         for sc in self.s["shortcuts"]:
             self.add_shortcut(sc)
+
+        head = Gtk.Label(label="Shortcuts in use now", xalign=0)
+        head.get_style_context().add_class("heading")
+        page.pack_start(head, False, False, 0)
+        self.note(page, "Everything Hyprland answers to at the moment, yours included after an Apply. "
+                        "The built-in ones are fixed; pick different keys for your own.")
+        self.binds = Gtk.Grid(column_spacing=24, row_spacing=4)
+        listing = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        listing.add(self.binds)
+        page.pack_start(listing, True, True, 0)
+        self.list_binds()
+
+    def list_binds(self):
+        for child in self.binds.get_children():
+            self.binds.remove(child)
+        rows = core.current_binds() or [("", "Open this window inside a Hyprland session to see them.")]
+        for n, (keys, what) in enumerate(rows):
+            key = Gtk.Label(label=keys, xalign=0, selectable=True)
+            key.get_style_context().add_class("dim-label")
+            self.binds.attach(key, 0, n, 1, 1)
+            self.binds.attach(Gtk.Label(label=what, xalign=0), 1, n, 1, 1)
+        self.binds.show_all()
 
     def add_shortcut(self, sc=None):
         if sc is None:
