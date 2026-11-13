@@ -109,7 +109,8 @@
         "interval": 30,
         "states": { "warning": 25, "critical": 10 },
         "format": "<span color='__LKR_ACCENT__'>{icon}</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
-        "format-charging": "<span color='__LKR_ACCENT__'>\uf0e7</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
+        // Charging: yellow bolt and yellow outline (see style.css), so it stands out from the theme colours.
+        "format-charging": "<span color='#ffe14d'>\uf0e7</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
         "format-plugged": "<span color='__LKR_ACCENT__'>\uf1e6</span>  <span color='__LKR_PRIMARY__'>{capacity}%</span>",
         "format-icons": ["\uf244", "\uf243", "\uf242", "\uf241", "\uf240"],
         "tooltip-format": "{timeTo}"

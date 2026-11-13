@@ -855,6 +855,102 @@ def uninstall(items):
     return log
 
 
+# ---------- updating ----------
+VERSIONS = os.path.join(OWN, "previous-versions")  # the version before each update, one commit per line, newest last
+
+
+def _git(*args):
+    """(worked, output) of a git command in the tool's own folder."""
+    try:
+        done = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True, timeout=120,
+                              env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+    return done.returncode == 0, (done.stdout + done.stderr).strip()
+
+
+def version(commit="HEAD"):
+    """One line for a version: short id, date, what changed. "" when the tool was not installed with git."""
+    ok, out = _git("log", "-1", "--format=%h  %cs  %s", commit)
+    return out if ok else ""
+
+
+def previous_versions():
+    try:
+        with open(VERSIONS) as f:
+            return f.read().split()
+    except OSError:
+        return []
+
+
+def _hand_edited():
+    """Why git must not move the files right now, or "" when it may."""
+    if not version():
+        return "This copy was not installed with git clone, so it cannot update itself. Download it again instead."
+    if _git("status", "--porcelain", "--untracked-files=no")[1]:
+        return "Files in %s were changed by hand. Undo or commit those changes first." % REPO.replace(HOME, "~")
+    return ""
+
+
+def update_check():
+    """(number of newer versions, text listing them). -1 when GitHub could not be asked."""
+    if not version():
+        return -1, _hand_edited()
+    if not _git("fetch", "--quiet")[0]:
+        return -1, "Could not reach GitHub. Are you online?"
+    ok, news = _git("log", "--format=%cs  %s", "HEAD..@{u}")
+    if not ok:
+        return -1, "This copy does not follow a branch on GitHub."
+    lines = news.splitlines()
+    return len(lines), "\n".join(lines[:8] + ["… and %d more" % (len(lines) - 8)] * (len(lines) > 8))
+
+
+def update():
+    """Move to the newest version on GitHub, remembering the current one so revert() can go back.
+    Returns (changed, message). After a change, call reapply() and restart the GUI."""
+    count, news = update_check()
+    if count < 0:
+        return False, news
+    if count == 0:
+        return False, "Already the newest version: %s" % version()
+    problem = _hand_edited()
+    if problem:
+        return False, problem
+    before = _git("rev-parse", "HEAD")[1]
+    ok, out = _git("merge", "--ff-only", "@{u}")
+    if not ok:
+        return False, "Could not update: this copy has its own commits that GitHub does not.\n%s" % out.splitlines()[-1]
+    os.makedirs(OWN, exist_ok=True)
+    with open(VERSIONS, "a") as f:
+        f.write(before + "\n")
+    return True, "Updated to %s" % version()
+
+
+def revert():
+    """Go back to the version in use before the last update. Each call goes one update further back.
+    Returns (changed, message). After a change, call reapply() and restart the GUI."""
+    history = previous_versions()
+    if not history:
+        return False, "No earlier version to go back to: nothing has been updated from here yet."
+    problem = _hand_edited()
+    if problem:
+        return False, problem
+    if _git("log", "--format=%h", "@{u}..HEAD")[1]:
+        return False, "This copy has commits of its own that are not on GitHub. Going back would drop them; use git yourself."
+    ok, out = _git("reset", "--hard", history[-1])
+    if not ok:
+        return False, "Could not go back:\n%s" % out
+    with open(VERSIONS, "w") as f:
+        f.write("".join(h + "\n" for h in history[:-1]))
+    return True, "Back on %s" % version()
+
+
+def reapply():
+    """Write the configs again with the code now on disk (not the code this process loaded). Returns its log."""
+    done = subprocess.run([sys.executable, os.path.join(REPO, "lazy-kali-ricer"), "apply"], capture_output=True, text=True)
+    return done.stdout.strip() or done.stderr.strip()
+
+
 # ---------- debugging ----------
 def set_debug(on):
     """Mirror the Hyprland log to a file that survives a crash or reboot."""

@@ -86,7 +86,7 @@ dialog, also when you started it from a terminal.
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
-| **Debug** | Logging switch and a button that saves a report. |
+| **Update & debug** | Check for updates, update, go back to the previous version. Logging switch and a button that saves a report. |
 | **Uninstall** | Every change it made, one line each. Untick what you want to keep. |
 
 ### What Get apps installs
@@ -250,11 +250,26 @@ The GUI shows what it found at the bottom of the window.
 ```
 lazy-kali-ricer                 open the GUI
 lazy-kali-ricer apply           write the configs from the saved settings
+lazy-kali-ricer update          get the newest version from GitHub and apply it
+lazy-kali-ricer revert          go back to the version in use before the last update
+lazy-kali-ricer version         show the installed version
 lazy-kali-ricer debug on        mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log
 lazy-kali-ricer debug off       stop mirroring
 lazy-kali-ricer debug report    save ~/.cache/lazy-kali-ricer/debug-report.txt
 lazy-kali-ricer uninstall       list every change and ask about each one
 ```
+
+## Updating
+
+In the **Update & debug** tab, or from a terminal:
+
+- **Update** (`lazy-kali-ricer update`) gets the newest version from GitHub, writes your configs
+  again with your saved settings, and reopens the window.
+- **Go back to the previous version** (`lazy-kali-ricer revert`) returns to the version you had
+  before the last update. Press it again to go one update further back.
+
+Both refuse to run if you changed the tool's own files by hand, so nothing of yours is overwritten.
+If an update leaves the window unable to open, `lazy-kali-ricer revert` in a terminal still works.
 
 ## Uninstall
 

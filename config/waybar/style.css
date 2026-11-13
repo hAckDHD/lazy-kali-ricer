@@ -146,9 +146,15 @@ window#waybar.empty #window {
 
 /* States */
 #pulseaudio.muted { color: #6f8378; }
-#battery.charging { color: __LKR_PRIMARY__; }
 #battery.warning  { color: #e0b020; }
 #battery.critical { color: #ff5370; border-color: rgba(255, 83, 112, 0.5); }
+/* Charging wins over warning/critical: yellow outline and glow to match the yellow bolt. */
+#battery.charging {
+    color: __LKR_PRIMARY__;
+    border-color: rgba(255, 225, 77, 0.85);
+    background: rgba(255, 225, 77, 0.10);
+    box-shadow: 0 0 10px rgba(255, 225, 77, 0.35);
+}
 
 #tray { border-color: rgba(__LKR_ACCENT_RGB__, 0.25); }
 #tray menu { color: #d7e9df; background: #0e1214; }

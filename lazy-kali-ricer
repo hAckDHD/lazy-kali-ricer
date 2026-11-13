@@ -3,6 +3,9 @@
 
   lazy-kali-ricer                 Open the GUI.
   lazy-kali-ricer apply           Write the configs from the saved settings (no GUI).
+  lazy-kali-ricer update          Get the newest version from GitHub and apply it.
+  lazy-kali-ricer revert          Go back to the version in use before the last update.
+  lazy-kali-ricer version         Show the installed version.
   lazy-kali-ricer debug on        Mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log.
   lazy-kali-ricer debug off       Stop mirroring.
   lazy-kali-ricer debug report    Save a shareable report (versions, settings, config errors, log tail).
@@ -20,6 +23,13 @@ if not args:
     gui.main()
 elif args == ["apply"]:
     print("\n".join(core.apply(core.load())))
+elif args == ["version"]:
+    print(core.version() or "unknown (not installed with git)")
+elif args in (["update"], ["revert"]):
+    changed, message = core.update() if args == ["update"] else core.revert()
+    print(message)
+    if changed:
+        print(core.reapply())
 elif args in (["debug", "on"], ["debug", "off"]):
     on = core.set_debug(args[1] == "on")["debug"]
     print("Debug logging on: %s" % core.DEBUG_LOG if on else "Debug logging off.")

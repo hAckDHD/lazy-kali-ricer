@@ -3,6 +3,7 @@ import math
 import os
 import re
 import shutil
+import sys
 import threading
 import types
 
@@ -42,7 +43,7 @@ class Ricer(Gtk.Window):
         for title, build in (("Apps", self.page_apps), ("Displays", self.page_displays), ("Shortcuts", self.page_shortcuts),
                              ("Get apps", self.page_get_apps), ("Browsers & tools", self.page_kit),
                              ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
-                             ("Clipboard", self.page_clipboard), ("Debug", self.page_debug),
+                             ("Clipboard", self.page_clipboard), ("Update & debug", self.page_debug),
                              ("Uninstall", self.page_uninstall)):
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=14)
             build(page)
@@ -1131,6 +1132,23 @@ class Ricer(Gtk.Window):
 
     # ----- Debug -----
     def page_debug(self, page):
+        self.head(page, "Update")
+        self.note(page, "Gets the newest lazy-kali-ricer from GitHub, writes your configs again with your saved "
+                        "settings, and reopens this window. \"Go back\" returns to the version you had before the "
+                        "last update. Same as:  lazy-kali-ricer update | revert")
+        self.version_label = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        page.pack_start(self.version_label, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        self.update_buttons = {}
+        for key, label in (("check", "Check for updates"), ("update", "Update"), ("revert", "Go back to the previous version")):
+            button = Gtk.Button(label=label)
+            button.connect("clicked", self.on_update, key)
+            self.update_buttons[key] = button
+            row.pack_start(button, False, False, 0)
+        self.update_buttons["update"].get_style_context().add_class("suggested-action")
+        page.pack_start(row, False, False, 0)
+        self.fill_version()
+        self.head(page, "Debug")
         self.note(page, "Something broken? Turn logging on, reproduce the problem, then save a report and "
                         "share that file. Home path, user name and host name are replaced in it. Same as:\n"
                         "    lazy-kali-ricer debug on | off | report")
@@ -1143,6 +1161,41 @@ class Ricer(Gtk.Window):
         report = Gtk.Button(label="Save debug report", halign=Gtk.Align.START)
         report.connect("clicked", lambda *_: self.status.set_text("Report saved: " + core.debug_report()))
         page.pack_start(report, False, False, 0)
+
+    def fill_version(self):
+        now, earlier = core.version(), core.previous_versions()
+        self.version_label.set_text("Installed:  %s%s" % (
+            now or "unknown (not installed with git clone)",
+            "\nBefore the last update:  %s" % (core.version(earlier[-1]) or earlier[-1][:7]) if earlier else ""))
+        self.update_buttons["revert"].set_sensitive(bool(earlier))
+        for key in ("check", "update"):
+            self.update_buttons[key].set_sensitive(bool(now))
+
+    def on_update(self, button, key):
+        if key == "check":
+            self.status.set_text("Asking GitHub …")
+
+            def checked(result):
+                count, news = result
+                self.status.set_text(news if count < 0 else "You have the newest version." if count == 0 else
+                                     "%d newer version%s:\n%s" % (count, "s" * (count > 1), news))
+
+            self.background(button, core.update_check, checked)
+            return
+        self.status.set_text("Updating …" if key == "update" else "Going back …")
+
+        def work():
+            changed, message = core.update() if key == "update" else core.revert()
+            return changed, message + ("\n" + core.reapply() if changed else "")
+
+        def done(result):
+            changed, message = result
+            self.status.set_text(message)
+            self.fill_version()
+            if changed:  # the files on disk are another version now: start again with them
+                GLib.timeout_add(1500, lambda: os.execv(sys.executable, [sys.executable, os.path.join(core.REPO, "lazy-kali-ricer")]))
+
+        self.background(button, work, done)
 
     # ----- Uninstall -----
     def page_uninstall(self, page):
