@@ -496,6 +496,9 @@ def defaults():
              clip_enabled=True, clip_max=200, clip_images=True, clip_skip_sensitive=False, clip_wipe_login=False,
              keys_on_login=True, shortcuts=[], monitors=[], debug=False, kb_layout=detect_kb_layout())
     s["apps"] = default_apps(detect_apps())
+    from . import term
+
+    s.update(term.defaults())
     return s
 
 
@@ -733,6 +736,9 @@ def apply(s):
     with open(MANIFEST, "w") as f:
         json.dump(managed, f, indent=2, sort_keys=True)
     log.append("Wrote %d config files to %s" % (len(files), CFG.replace(HOME, "~")))
+    from . import term
+
+    log += term.apply(s)
 
     missing = [b for b in NEEDED + (["flameshot"] if s["apps"]["screenshot"] == "flameshot" else []) if not shutil.which(b)]
     if missing:
@@ -800,7 +806,7 @@ def uninstall_items():
             items.append(dict(kind="path", target=_launcher(key), label="Delete the %s launcher" % name, on=True))
     if os.path.isdir(os.path.join(HOME, ".cache", "cliphist")):
         items.append(dict(kind="clipboard", target="", label="Wipe clipboard history", on=False))
-    from . import burp, kit
+    from . import burp, kit, term
 
     if burp.our_launcher():
         items.append(dict(kind="path", target=burp.LAUNCHER, on=True,
@@ -808,6 +814,8 @@ def uninstall_items():
     if burp.firefox_has_foxyproxy():
         items.append(dict(kind="firefox", target=burp.FIREFOX_POLICY, on=True,
                           label="Stop installing FoxyProxy into Firefox  (edits %s; asks for your password)" % burp.FIREFOX_POLICY))
+    for path in term.hooked():
+        items.append(dict(kind="shell", target=path, label="Remove the terminal banner lines from %s" % short(path), on=True))
     for browser, path in kit.policy_files():
         items.append(dict(kind="policy", target=path, on=True,
                           label="Stop installing extensions into %s  (delete %s; asks for your password)" % (browser, path)))
@@ -855,6 +863,10 @@ def uninstall(items):
             shutil.rmtree(target) if os.path.isdir(target) and not os.path.islink(target) else os.remove(target)
         elif kind == "clipboard":
             wipe_clipboard()
+        elif kind == "shell":
+            from . import term
+
+            term.hook(False, [target])
         if kind not in ("package", "policy", "firefox"):
             log.append("Done: %s" % item["label"])
     if managed_gone and os.path.isfile(MANIFEST):  # some files kept: remember only those

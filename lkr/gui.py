@@ -13,7 +13,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
-from . import burp, core, kit, sync  # noqa: E402
+from . import burp, core, fetch, kit, sync, term  # noqa: E402
 
 NONE, CUSTOM_CMD = "", "__custom__"
 
@@ -115,6 +115,7 @@ class Ricer(Gtk.Window):
         for title, build in (("Apps", self.page_apps), ("Displays", self.page_displays), ("Shortcuts", self.page_shortcuts),
                              ("Get apps", self.page_get_apps), ("Browsers & tools", self.page_kit), ("Sync devices", self.page_sync),
                              ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
+                             ("Terminal", self.page_terminal),
                              ("Clipboard", self.page_clipboard), ("Update & debug", self.page_debug),
                              ("Uninstall", self.page_uninstall)):
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=14)
@@ -1223,6 +1224,7 @@ class Ricer(Gtk.Window):
             self.s.update(themes[name])
             self.fill_theme()
             self.wall_colour.set_rgba(to_rgba(self.s["wallpaper_color"]))
+            self.show_banner()
 
     def edited(self, key):
         if self.loading:
@@ -1233,6 +1235,7 @@ class Ricer(Gtk.Window):
         self.loading = False
         self.s["theme"] = core.CUSTOM
         self.preview.queue_draw()
+        self.show_banner()
 
     def draw_preview(self, area, cr):
         """Mock desktop: wallpaper colour, an unfocused and a focused window, a bar pill."""
@@ -1355,6 +1358,187 @@ class Ricer(Gtk.Window):
             self.thumb.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_size(self.s["wallpaper_image"], 520, 300))
         except GLib.Error:
             self.thumb.clear()
+
+    # ----- Terminal -----
+    def page_terminal(self, outer):
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        scroll.add(page)
+        outer.pack_start(scroll, True, True, 0)
+        self.note(page, "A banner each time a terminal opens: art on the left, facts about this system on the right. "
+                        "Works in bash and zsh, in any terminal with 24-bit colour. Apply adds three lines to the end "
+                        "of ~/.zshrc and ~/.bashrc; turning everything here off and applying removes them. "
+                        "Try it any time with:  lazy-kali-ricer banner")
+        self.check(page, "Show the banner when a terminal opens", "term_banner")
+
+        g = self.grid(page)
+        self.term_art = Gtk.ComboBoxText(hexpand=True)
+        self.term_art.connect("changed", self.on_term_art)
+        add = Gtk.Button(label="Add from a file…")
+        add.connect("clicked", self.on_art_file)
+        paste = Gtk.Button(label="Paste art…")
+        paste.connect("clicked", self.on_art_paste)
+        self.art_delete = Gtk.Button(label="Delete")
+        self.art_delete.connect("clicked", self.on_art_delete)
+        box = Gtk.Box(spacing=8)
+        for widget in (self.term_art, add, paste, self.art_delete):
+            box.pack_start(widget, widget is self.term_art, True, 0)
+        self.row(g, 0, "Art", box)
+
+        chooser = Gtk.FileChooserButton(title="Choose a picture for the banner", hexpand=True)
+        images = Gtk.FileFilter()
+        images.set_name("Images")
+        images.add_pixbuf_formats()
+        chooser.add_filter(images)
+        pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+        if os.path.isfile(self.s["term_picture"]):
+            chooser.set_filename(self.s["term_picture"])
+        elif pictures:
+            chooser.set_current_folder(pictures)
+
+        def picked(w):
+            self.s["term_picture"] = w.get_filename() or ""
+            self.term_art.set_active_id(term.PICTURE)
+            self.show_banner()
+
+        chooser.connect("file-set", picked)
+        wide = Gtk.SpinButton.new_with_range(8, 80, 2)
+        wide.set_value(self.s["term_picture_width"])
+        wide.connect("value-changed", lambda w: (self.s.__setitem__("term_picture_width", w.get_value_as_int()), self.show_banner()))
+        box = Gtk.Box(spacing=8)
+        box.pack_start(chooser, True, True, 0)
+        box.pack_start(wide, False, False, 0)
+        box.pack_start(Gtk.Label(label="characters wide"), False, False, 0)
+        self.row(g, 1, "Picture", box)
+
+        own = Gtk.CheckButton(label="Same as the theme", active=bool(self.s["term_theme_colours"]))
+        buttons = []
+        box = Gtk.Box(spacing=8)
+        box.pack_start(own, False, False, 0)
+        for key in ("term_primary", "term_accent"):
+            button = Gtk.ColorButton(use_alpha=False, rgba=to_rgba(self.s[key]), sensitive=not self.s["term_theme_colours"])
+            button.connect("color-set", lambda w, key=key: (self.s.__setitem__(key, to_hex(w.get_rgba())), self.show_banner()))
+            buttons.append(button)
+            box.pack_start(button, False, False, 0)
+
+        def same(w):
+            self.s["term_theme_colours"] = w.get_active()
+            for button in buttons:
+                button.set_sensitive(not w.get_active())
+            self.show_banner()
+
+        own.connect("toggled", same)
+        self.row(g, 2, "Colours", box)
+
+        self.head(page, "Facts to show")
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, column_spacing=10)
+        for key, (_label, name) in fetch.FACTS.items():
+            tick = Gtk.CheckButton(label=name, active=key in self.s["term_facts"])
+
+            def ticked(w, key=key):
+                chosen = set(self.s["term_facts"]) - {key} | ({key} if w.get_active() else set())
+                self.s["term_facts"] = [k for k in fetch.FACTS if k in chosen]
+                self.show_banner()
+
+            tick.connect("toggled", ticked)
+            flow.add(tick)
+        page.pack_start(flow, False, False, 0)
+
+        self.head(page, "Terminal colours")
+        box = Gtk.Box(spacing=8)
+        recolour = Gtk.CheckButton(label="Text in the primary colour, cursor in the accent colour, background:",
+                                   active=bool(self.s["term_colours"]))
+        recolour.connect("toggled", lambda w: (self.s.__setitem__("term_colours", w.get_active()), self.show_banner()))
+        paper = Gtk.ColorButton(use_alpha=False, rgba=to_rgba(self.s["term_background"]))
+        paper.connect("color-set", lambda w: (self.s.__setitem__("term_background", to_hex(w.get_rgba())), self.show_banner()))
+        box.pack_start(recolour, False, False, 0)
+        box.pack_start(paper, False, False, 0)
+        page.pack_start(box, False, False, 0)
+
+        self.head(page, "Preview")
+        self.banner_css = Gtk.CssProvider()
+        self.banner_view = Gtk.Label(xalign=0, yalign=0, selectable=False, margin=12)
+        frame = Gtk.EventBox()
+        for widget in (frame, self.banner_view):
+            widget.get_style_context().add_provider(self.banner_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        frame.add(self.banner_view)
+        sideways = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER)
+        sideways.add(frame)
+        page.pack_start(sideways, False, False, 0)
+        self.banner_note = Gtk.Label(xalign=0, wrap=True)
+        page.pack_start(self.banner_note, False, False, 0)
+        self.list_art()
+
+    def list_art(self):
+        """Refill the art list: built-in, yours, a picture, none. Selects the current one."""
+        self.loading = True
+        self.term_art.remove_all()
+        for art_id, name in term.arts() + [(term.PICTURE, "A picture"), (term.NO_ART, "No art, facts only")]:
+            self.term_art.append(art_id, name)
+        self.loading = False
+        if not self.term_art.set_active_id(self.s["term_art"]):
+            self.term_art.set_active(0)  # the art was deleted: fall back to the first
+
+    def on_term_art(self, combo):
+        if self.loading or combo.get_active_id() is None:
+            return
+        self.s["term_art"] = combo.get_active_id()
+        self.art_delete.set_sensitive(self.s["term_art"].startswith(term.OWN_PREFIX))
+        self.show_banner()
+
+    def show_banner(self):
+        if not hasattr(self, "banner_view"):  # the Theme tab is built first and calls this too
+            return
+        markup, problem = term.preview(self.s)
+        ink, paper = (term.colours(self.s)[0], self.s["term_background"]) if self.s["term_colours"] else ("#d0d0d0", "#000000")
+        self.banner_css.load_from_data(("* { background-color: %s; color: %s; font-family: monospace; }" % (paper, ink)).encode())
+        self.banner_view.set_markup(markup)
+        self.banner_note.set_text(problem)
+
+    def art_added(self, result):
+        art_id, problem = result
+        if art_id:
+            self.s["term_art"] = art_id
+            self.list_art()
+        self.status.set_text(problem or "Art added. It is kept in %s" % term.OWN_ART.replace(core.HOME, "~"))
+        return bool(art_id)
+
+    def on_art_file(self, _button):
+        ask = Gtk.FileChooserNative.new("Choose a text file with ASCII art", self, Gtk.FileChooserAction.OPEN, "Add", "Cancel")
+        if ask.run() == Gtk.ResponseType.ACCEPT:
+            self.art_added(term.add_art_file(ask.get_filename()))
+        ask.destroy()
+
+    def on_art_paste(self, _button):
+        ask = Gtk.Dialog(title="Paste art", transient_for=self, modal=True)
+        ask.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Add", Gtk.ResponseType.OK)
+        ask.set_default_size(620, 460)
+        box = ask.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(14)
+        name = Gtk.Entry(placeholder_text="Name for this art")
+        text = Gtk.TextView(monospace=True)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.add(text)
+        hint = Gtk.Label(xalign=0, wrap=True, label="Plain text is drawn in the primary colour. Put ${c1} in front of "
+                         "what should be primary and ${c2} in front of what should be accent, as neofetch art does.")
+        hint.get_style_context().add_class("dim-label")
+        for widget in (name, scroll, hint):
+            box.pack_start(widget, widget is scroll, True, 0)
+        ask.show_all()
+        while ask.run() == Gtk.ResponseType.OK:
+            buf = text.get_buffer()
+            if self.art_added(term.add_art(name.get_text(), buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False))):
+                break
+            hint.set_text(self.status.get_text())
+        ask.destroy()
+
+    def on_art_delete(self, _button):
+        art_id = self.s["term_art"]
+        if art_id.startswith(term.OWN_PREFIX) and self.confirm("Delete the art \"%s\"?" % art_id[len(term.OWN_PREFIX):]):
+            term.delete_art(art_id)
+            self.s["term_art"] = "pentagram"
+            self.list_art()
 
     # ----- Clipboard -----
     def page_clipboard(self, page):

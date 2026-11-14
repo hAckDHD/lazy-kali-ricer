@@ -3,6 +3,7 @@
 
   lazy-kali-ricer                 Open the GUI.
   lazy-kali-ricer apply           Write the configs from the saved settings (no GUI).
+  lazy-kali-ricer banner          Show the terminal banner now, as set in the Terminal tab.
   lazy-kali-ricer burp            Set up Burp Suite and FoxyProxy on the saved proxy port (8080 unless you chose one).
   lazy-kali-ricer burp 8081       The same, on that port (1024-65535); the port is remembered.
   lazy-kali-ricer update          Get the newest version from GitHub and apply it.
@@ -24,6 +25,7 @@ Sync with another of your devices over Tailscale (shortcuts, zsh files, tools, b
 <device> is its Tailscale name, or user@name when your user name differs there.
 """
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -35,6 +37,12 @@ if not args:
     gui.main()
 elif args == ["apply"]:
     print("\n".join(core.apply(core.load())))
+elif args == ["banner"]:
+    from lkr import fetch, term
+    cfg, problem = term.banner(core.load())
+    print("\n" + "\n".join(fetch.lines(cfg, shutil.get_terminal_size().columns)) + "\n")
+    if problem:
+        print(problem)
 elif args[:1] == ["burp"] and len(args) <= 2:
     from lkr import burp
     number = burp.valid_port(args[1]) if len(args) == 2 else burp.port(core.load())

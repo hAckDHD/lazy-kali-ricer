@@ -87,6 +87,7 @@ dialog, also when you started it from a terminal.
 | **Sync devices** | Bring two of your own devices in line over Tailscale: shortcuts, zsh files, tools, browser extensions. One is the master, or merge both. See [Sync devices](#sync-devices). |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
+| **Terminal** | The banner a terminal shows when it opens: art (built-in, your own ASCII art, or a picture), which facts about the system, colours. Can also colour the terminal itself. See [Terminal banner](#terminal-banner). |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
 | **Update & debug** | Every version in a list: which one is installed, which are newer, where you were before. Update, or pick a line to roll back to it. Logging switch and a button that saves a report. |
 | **Uninstall** | Every change it made, one line each. Untick what you want to keep. |
@@ -281,6 +282,29 @@ name order and wrap around.
 
 The lock screen then shows a blurred copy of whatever is on screen.
 
+### Terminal banner
+
+A neofetch-style banner each time a terminal opens: art on the left, facts about the system on the
+right. It is the tool's own small script, so nothing extra is installed, and it reads `/proc` instead of
+starting other programs (about 20 ms). Works in bash and zsh, in any terminal with 24-bit colour.
+
+- **Built-in art**: Pentagram, Eye, Kali, Radiation, Skull, Target. They take the theme's primary and
+  accent colours, or two colours of your own.
+- **Your own ASCII art**: "Add from a file…" or "Paste art…". Plain text is drawn in the primary colour.
+  Art written for neofetch works as it is: `${c1}` switches to the primary colour, `${c2}` to the accent.
+  Art that carries its own ANSI colours keeps them. Every other escape sequence is removed, so art
+  copied from the internet can only draw. Yours is kept in `~/.config/lazy-kali-ricer/art/`.
+- **A picture**: any image, drawn with coloured half-block characters at the width you pick.
+  Transparent parts stay empty. Small, simple pictures (logos, icons) work best.
+- **Facts**: user@host, system, kernel, uptime, packages, shell, terminal, processor, memory, disk,
+  local IP, VPN IP (tun/wg), colour blocks. Tick the ones you want.
+- **Terminal colours** (optional): text in the primary colour, cursor in the accent colour, and a
+  background colour, set when the terminal opens.
+
+Apply adds three lines to the end of `~/.zshrc` and `~/.bashrc`; nothing else in them changes.
+Turn the banner and the terminal colours off and Apply to remove the lines. The preview in the tab
+shows the result; `lazy-kali-ricer banner` prints it in the terminal you are in.
+
 ### Clipboard privacy
 
 History stays on your computer, in `~/.cache/cliphist`. Nothing is sent anywhere.
@@ -314,6 +338,7 @@ The GUI shows what it found at the bottom of the window.
 ```
 lazy-kali-ricer                 open the GUI
 lazy-kali-ricer apply           write the configs from the saved settings
+lazy-kali-ricer banner          show the terminal banner now
 lazy-kali-ricer burp            set up Burp Suite and FoxyProxy on the saved proxy port
 lazy-kali-ricer burp 8081       the same, on that port; the port is remembered
 lazy-kali-ricer update          get the newest version from GitHub and apply it
@@ -418,6 +443,10 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `lkr/burp.py` | Burp Suite proxy port, FoxyProxy in your browsers |
 | `~/.config/lazy-kali-ricer/burp/` | `burp-project.json` for Burp, `foxyproxy-burp.json` to import in FoxyProxy |
 | `lkr/sync.py` | Sync between your devices over Tailscale |
+| `lkr/term.py`, `lkr/fetch.py` | Terminal banner: art and picture rendering; the script a new terminal runs |
+| `art/` | Built-in banner art |
+| `~/.config/lazy-kali-ricer/art/` | Your own banner art |
+| `~/.config/lazy-kali-ricer/terminal/` | What a new terminal reads: `init.sh`, `fetch`, `banner.json` |
 | `kit-sample/` | Templates for your kit folder |
 | `~/lazy-kali-kit/` | Your kit: `tools.txt`, `bookmarks.json`, `extensions.txt`, `tools/` |
 | `~/tools/` | Your scripts, and the repositories `tools.txt` clones |
