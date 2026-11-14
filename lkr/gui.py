@@ -645,8 +645,8 @@ class Ricer(Gtk.Window):
                 ("tools", "Tools", "Packages you installed by name, pipx tools, git repositories in ~/tools → tools.txt"),
                 ("scripts", "Scripts", "Your own files and folders in ~/tools → the kit's tools/ folder "
                                        "(not git checkouts, not files over 5 MB)"),
-                ("exts", "Extensions", "Extensions you added to the ticked browsers → extensions.txt"),
-                ("marks", "Bookmarks", "Bookmarks of the first ticked browser → bookmarks.json (replaces the file)")):
+                ("exts", "Extensions", "Extensions you added to the ticked browsers → extensions.txt (not Firefox's own add-ons)"),
+                ("marks", "Bookmarks", "Bookmarks of the first ticked browser that has any → bookmarks.json (replaces the file)")):
             box = Gtk.CheckButton(label=label, active=True, tooltip_text=tip)
             self.build_parts.append((box, key))
             row.pack_start(box, False, False, 0)
@@ -687,11 +687,11 @@ class Ricer(Gtk.Window):
         page.pack_start(self.find_scroll, False, False, 0)
 
         self.head(page, "Browsers")
-        self.note(page, "Extensions and bookmarks go to the ticked browsers. Brave and Chromium are in the Get apps tab. "
-                        "Firefox and Tor Browser are not covered here, except for FoxyProxy below.")
+        self.note(page, "Extensions, bookmarks and the Burp setup go to the ticked browsers. Brave and Chromium are in "
+                        "the Get apps tab. Tor Browser is not covered here.")
         row, found = Gtk.Box(spacing=14), kit.installed_browsers()
         self.kit_browsers = []  # (checkbox, name)
-        for name in kit.BROWSERS:
+        for name in list(kit.BROWSERS) + [kit.FIREFOX]:
             box = Gtk.CheckButton(label=name if name in found else name + "  — not installed", active=name in found)
             box.set_sensitive(name in found)
             self.kit_browsers.append((box, name))
@@ -701,7 +701,8 @@ class Ricer(Gtk.Window):
         self.head(page, "Extensions")
         self.note(page, "The browser installs the ticked ones itself the next time it starts. It then shows "
                         "\"Managed by your organisation\": that is this list. Untick everything and set again to "
-                        "remove the list. You sign in to each extension yourself.")
+                        "remove the list. You sign in to each extension yourself. Firefox gets the Firefox version "
+                        "of each from addons.mozilla.org; extensions of your own from extensions.txt have none.")
         self.ext_flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4)
         page.pack_start(self.ext_flow, False, False, 0)
         self.ext_button = Gtk.Button(label="Set extensions in ticked browsers", halign=Gtk.Align.START)
@@ -710,19 +711,21 @@ class Ricer(Gtk.Window):
 
         self.head(page, "Burp Suite")
         self.note(page, "Pick the port Burp's proxy listens on. Set up makes Burp use it when started from the menu, "
-                        "adds FoxyProxy to the browsers ticked above (and Firefox, ticked here), and writes a FoxyProxy "
-                        "settings file with Burp on that port. You import that file in FoxyProxy once per browser; "
-                        "after that its menu switches Burp on and off.")
+                        "adds FoxyProxy to the browsers ticked above, makes them trust Burp's "
+                        "certificate so HTTPS sites open through it, and writes a FoxyProxy settings file with Burp "
+                        "on that port. You import that file in FoxyProxy once per browser; after that its menu "
+                        "switches Burp on and off.")
         row = Gtk.Box(spacing=10)
         row.pack_start(Gtk.Label(label="Proxy port", xalign=0), False, False, 0)
         self.burp_port = Gtk.SpinButton.new_with_range(1024, 65535, 1)
         self.burp_port.set_value(burp.port(self.s))
         self.burp_port.set_tooltip_text("1024 to 65535. Burp's own default is 8080.")
         row.pack_start(self.burp_port, False, False, 0)
-        has_firefox = burp.FIREFOX in burp.browsers()
-        self.burp_firefox = Gtk.CheckButton(label="Firefox" if has_firefox else "Firefox  — not installed",
-                                            active=has_firefox, sensitive=has_firefox)
-        row.pack_start(self.burp_firefox, False, False, 0)
+        self.burp_trust = Gtk.CheckButton(label="Trust Burp's certificate", active=True, tooltip_text=(
+            "Burp reads HTTPS traffic by signing sites with its own certificate. Ticked: the browsers accept it. "
+            "Anyone holding Burp's private key (it is in your home folder) could then pose as any site to these "
+            "browsers, so keep it to a testing machine."))
+        row.pack_start(self.burp_trust, False, False, 0)
         self.burp_button = Gtk.Button(label="Set up Burp and FoxyProxy")
         self.burp_button.connect("clicked", self.on_burp)
         row.pack_start(self.burp_button, False, False, 0)
@@ -730,7 +733,8 @@ class Ricer(Gtk.Window):
 
         self.head(page, "Bookmarks")
         self.note(page, "Import replaces the bookmarks of the ticked browsers with the file (close the browser first). "
-                        "The old ones stay next to it as Bookmarks.bak-<time>.")
+                        "The old ones stay next to it as Bookmarks.bak-<time>. Firefox is different: it keeps its own "
+                        "bookmarks and gets these added beside them at its next start (asks for your password).")
         row = Gtk.Box(spacing=8)
         self.marks_file = Gtk.FileChooserButton(title="Choose a bookmarks file", hexpand=True)
         load = Gtk.Button(label="Import")
@@ -955,17 +959,23 @@ class Ricer(Gtk.Window):
             return
 
         def done(ok):
-            self.status.set_text("%s: %s" % (", ".join(browsers), "cancelled or failed." if not ok else
-                                             "%d extensions set. Restart the browser to get them." % len(ids) if ids else
-                                             "extension list removed."))
+            text = "%s: %s" % (", ".join(browsers), "cancelled or failed." if not ok else
+                               "%d extensions set. Restart the browser to get them." % len(ids) if ids else
+                               "extension list removed.")
+            lacking = [box.get_label() for box, ext_id in self.kit_exts if ext_id in kit.no_firefox_version(ids)]
+            if ok and lacking and kit.FIREFOX in browsers:
+                text += "\nNot in Firefox (no Firefox version known): %s." % ", ".join(lacking)
+            self.status.set_text(text)
             self.fill_kit()
+            self.list_uninstall()
 
         self.background(button, lambda: kit.set_extensions(browsers, ids), done)
 
     def on_burp(self, button):
         self.burp_port.update()  # take a number that was typed but not confirmed with Enter
         number = self.burp_port.get_value_as_int()
-        names = self.ticked_browsers() + [burp.FIREFOX] * self.burp_firefox.get_active()
+        names = self.ticked_browsers()
+        trust = self.burp_trust.get_active()
         self.s["burp_port"] = number
         burp.set_port(number)
 
@@ -977,26 +987,43 @@ class Ricer(Gtk.Window):
             self.fill_kit()
             self.list_uninstall()
 
-        self.background(button, lambda: burp.setup(number, names), done)
+        self.background(button, lambda: burp.setup(number, names, trust), done)
 
-    def on_kit_import(self, _button):
+    def on_kit_import(self, button):
         path, browsers = self.marks_file.get_filename(), self.ticked_browsers()
         if not path or not browsers:
             self.status.set_text("Choose a bookmarks file and tick a browser first.")
             return
         try:
             count = kit.count_bookmarks(kit.load_bookmarks(path))
-            ask = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
-                                    buttons=Gtk.ButtonsType.OK_CANCEL,
-                                    text="Replace the bookmarks in %s?" % ", ".join(browsers))
-            ask.format_secondary_text("%d bookmarks from %s take their place. The current ones are kept as Bookmarks.bak-<time>."
-                                      % (count, os.path.basename(path)))
-            go = ask.run() == Gtk.ResponseType.OK
-            ask.destroy()
-            if go:
-                self.status.set_text("\n".join(kit.import_bookmarks(path, browsers)))
         except (OSError, ValueError) as e:
             self.status.set_text("Failed: %s" % e)
+            return
+        replaced = [b for b in browsers if b != kit.FIREFOX]
+        ask = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
+                                buttons=Gtk.ButtonsType.OK_CANCEL,
+                                text="Replace the bookmarks in %s?" % ", ".join(replaced) if replaced
+                                else "Add the bookmarks to Firefox?")
+        ask.format_secondary_text(
+            ("%d bookmarks from %s take their place. The current ones are kept as Bookmarks.bak-<time>."
+             % (count, os.path.basename(path)) if replaced else "%d bookmarks from %s." % (count, os.path.basename(path)))
+            + (" Firefox keeps its own bookmarks and gets these added beside them." if kit.FIREFOX in browsers else ""))
+        go = ask.run() == Gtk.ResponseType.OK
+        ask.destroy()
+        if not go:
+            return
+
+        def work():
+            try:
+                return kit.import_bookmarks(path, browsers)
+            except (OSError, ValueError) as e:
+                return ["Failed: %s" % e]
+
+        def done(log):
+            self.status.set_text("\n".join(log))
+            self.list_uninstall()
+
+        self.background(button, work, done)
 
     # ----- Sync devices -----
     def page_sync(self, page):

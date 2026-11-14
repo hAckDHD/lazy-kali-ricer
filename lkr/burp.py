@@ -1,11 +1,15 @@
-"""Burp Suite: one proxy port of your choice, set in Burp and handed to FoxyProxy in your browsers."""
+"""Burp Suite: one proxy port of your choice, set in Burp and handed to FoxyProxy in your browsers,
+which are also told to trust Burp's certificate so HTTPS sites open through it."""
+import base64
 import json
 import os
-import shlex
+import re
 import shutil
-import tempfile
+import ssl
+import subprocess
+import urllib.request
 
-from . import core, kit
+from . import core, firefox, kit
 
 DEFAULT_PORT = 8080
 DIR = os.path.join(core.OWN, "burp")
@@ -17,15 +21,13 @@ LAUNCHER = os.path.join(core.LAUNCHERS, MENU_ENTRY)
 OURS = "X-Lazy-Kali-Ricer=true"  # marks the menu entry as written by us
 
 FOXYPROXY = "gcknhkkoolaabfmlnjonogaaifnjlfnp"  # Chrome Web Store id; also in kit.EXTENSIONS
-FOXYPROXY_FIREFOX = "foxyproxy@eric.h.jung"
-FOXYPROXY_XPI = "https://addons.mozilla.org/firefox/downloads/latest/foxyproxy-standard/latest.xpi"
 
-# Firefox has one policy file, not a folder of them. Once the one in /etc exists, Firefox stops reading
-# the one shipped next to the program (Kali's home page and so on), so ours starts as a copy of that.
-FIREFOX = "Firefox"
-FIREFOX_COMMANDS = ("firefox-esr", "firefox")
-FIREFOX_POLICY = "/etc/firefox/policies/policies.json"
-FIREFOX_SHIPPED = ("/usr/lib/firefox-esr/distribution/policies.json", "/usr/lib/firefox/distribution/policies.json")
+# Burp makes its own certificate authority on first start and keeps it, private key included, in its
+# Java preferences as a PKCS#12 store with this fixed password. Only the certificate is ever taken out.
+BURP_PREFS = os.path.join(core.HOME, ".java", ".userPrefs", "burp", "prefs.xml")
+BURP_STORE_PASSWORD = "/burp/media/ps.p12"
+CERT = os.path.join(DIR, "burp-ca.pem")  # your copy of the certificate, for anything else that should trust Burp
+CERT_POLICY = "lazy-kali-ricer-burp.json"  # Chromium-family policy file holding the certificate
 
 
 def valid_port(value):
@@ -50,7 +52,7 @@ def set_port(number):
 
 def browsers():
     """Installed browsers FoxyProxy can be added to."""
-    return kit.installed_browsers() + [FIREFOX] * any(shutil.which(c) for c in FIREFOX_COMMANDS)
+    return kit.installed_browsers()
 
 
 # ---------- Burp ----------
@@ -112,7 +114,39 @@ def write_configs(number):
             "From a terminal: burpsuite --config-file=%s" % (number, short(PROJECT))]
 
 
-# ---------- FoxyProxy ----------
+# ---------- Burp's certificate ----------
+def _der(pem):
+    """The certificate's bytes, or None when the text is not a certificate."""
+    try:
+        return ssl.PEM_cert_to_DER_cert(pem.strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def ca_certificate(number):
+    """Burp's CA certificate as PEM text: from Burp's saved preferences, or, failing that, from a Burp
+    running on the port. "" when Burp has never been started on this system."""
+    try:
+        with open(BURP_PREFS) as f:
+            store = re.search(r'key="caCert" value="([^"]+)"', f.read())
+        if store and shutil.which("openssl"):  # the store goes in on stdin: its private key never touches a file
+            done = subprocess.run(["openssl", "pkcs12", "-nokeys", "-passin", "pass:" + BURP_STORE_PASSWORD],
+                                  input=base64.b64decode(store.group(1)), capture_output=True)
+            found = re.search(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", done.stdout.decode(), re.S)
+            if found and _der(found.group()):
+                return found.group() + "\n"
+    except (OSError, ValueError):
+        pass
+    try:
+        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never through a proxy
+        with direct.open("http://127.0.0.1:%d/cert" % number, timeout=4) as reply:
+            pem = ssl.DER_cert_to_PEM_cert(reply.read(20000))
+        return pem if _der(pem) else ""
+    except (OSError, ValueError):
+        return ""
+
+
+# ---------- browsers: FoxyProxy and the certificate ----------
 def _read(path):
     try:
         with open(path) as f:
@@ -122,112 +156,93 @@ def _read(path):
         return {}
 
 
-def _chromium_policy(browser):
-    """The browser's extension list (our policy file) with FoxyProxy in it; what is listed stays."""
-    policy = _read(os.path.join(kit.BROWSERS[browser][3], kit.POLICY_NAME))
-    wanted = policy.get("ExtensionSettings")
-    policy["ExtensionSettings"] = wanted = wanted if isinstance(wanted, dict) else {}
-    wanted.setdefault(FOXYPROXY, {"installation_mode": "normal_installed", "update_url": kit.WEBSTORE})
-    return policy
-
-
-def _firefox_policy():
-    """Firefox's policy file with FoxyProxy in it. It starts from the file in /etc when there is one,
-    else from the one shipped with Firefox. Returns None when the file in /etc is there but unreadable
-    as JSON: better to leave it alone than to replace someone's work."""
-    if os.path.exists(FIREFOX_POLICY):
-        with open(FIREFOX_POLICY) as f:
-            try:
-                data = json.load(f)
-            except ValueError:
-                return None
-        if not isinstance(data, dict):
-            return None
-    else:
-        data = next((d for d in map(_read, FIREFOX_SHIPPED) if d), {})
-    policies = data.get("policies")
-    data["policies"] = policies = policies if isinstance(policies, dict) else {}
-    wanted = policies.get("ExtensionSettings")
-    policies["ExtensionSettings"] = wanted = wanted if isinstance(wanted, dict) else {}
-    wanted.setdefault(FOXYPROXY_FIREFOX, {"installation_mode": "normal_installed", "install_url": FOXYPROXY_XPI})
-    return data
-
-
-def firefox_has_foxyproxy():
-    settings = (_read(FIREFOX_POLICY).get("policies") or {}).get("ExtensionSettings") or {}
-    return FOXYPROXY_FIREFOX in settings
-
-
-def has_foxyproxy(browser):
-    """True when the browser is already told to install FoxyProxy."""
-    if browser == FIREFOX:
-        return firefox_has_foxyproxy()
-    return FOXYPROXY in (_read(os.path.join(kit.BROWSERS[browser][3], kit.POLICY_NAME)).get("ExtensionSettings") or {})
-
-
-def _install(files):
-    """Put [(data, destination)] in place as root, in one password prompt. Returns True when it worked."""
-    made = []
+def _text(path):
     try:
-        for data, dest in files:
-            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
-                json.dump(data, tmp, indent=2)
-            made.append((tmp.name, dest))
-        return core._root(" && ".join("install -D -m 644 %s %s" % (shlex.quote(a), shlex.quote(b)) for a, b in made))
-    finally:
-        for path, _dest in made:
-            os.remove(path)
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
 
 
-def add_foxyproxy(names):
-    """Tell each of the browsers to install FoxyProxy (it does so itself on its next start). Browsers
-    that are told already are skipped; the admin password is asked only when something is to be written.
-    Returns (worked, log lines)."""
+def _chromium_files(browser, pem):
+    """[(content, path)] for a Chromium-family browser: its extension list (our policy file) with
+    FoxyProxy in it, what is listed stays; and, with a certificate, the policy file that trusts it."""
+    folder = kit.BROWSERS[browser][3]
+    policy = _read(os.path.join(folder, kit.POLICY_NAME))
+    if not isinstance(policy.get("ExtensionSettings"), dict):
+        policy["ExtensionSettings"] = {}
+    policy["ExtensionSettings"].setdefault(FOXYPROXY, {"installation_mode": "normal_installed", "update_url": kit.WEBSTORE})
+    files = [(policy, os.path.join(folder, kit.POLICY_NAME))]
+    if pem:
+        files.append(({"CACertificates": [base64.b64encode(_der(pem)).decode()]}, os.path.join(folder, CERT_POLICY)))
+    return files
+
+
+def _firefox_files(pem):
+    """[(content, path)] for Firefox: its policy file with FoxyProxy on the list (what is listed stays)
+    and, with a certificate, a line that installs it, plus the certificate itself. None when the policy
+    file in /etc is not valid JSON."""
+    data = firefox.load()
+    if data is None:
+        return None
+    firefox.add_addons(data, [FOXYPROXY])
+    files = [(data, firefox.POLICY)]
+    if pem:
+        firefox.set_cert(data)
+        files.append((pem, firefox.CERT))
+    return files
+
+
+def _same(content, path):
+    """True when the file already holds this content."""
+    return content == (_text(path) if isinstance(content, str) else _read(path))
+
+
+def cert_policy_files():
+    """[(browser, path)] for every certificate policy file we wrote for a Chromium-family browser."""
+    paths = [(name, os.path.join(b[3], CERT_POLICY)) for name, b in kit.BROWSERS.items()]
+    return [(name, path) for name, path in paths if os.path.isfile(path)]
+
+
+def setup_browsers(names, pem=""):
+    """Tell each of the browsers to install FoxyProxy and, given Burp's certificate, to trust it. Both
+    take effect at the browser's next start. A browser that is set already is skipped; the admin password
+    is asked only when something is to be written. Returns (worked, log lines)."""
     files, log, new = [], [], []
+    what = "FoxyProxy and Burp's certificate" if pem else "FoxyProxy"
     for name in names:
-        if has_foxyproxy(name):
-            log.append("%s: FoxyProxy is on its list already." % name)
-        elif name == FIREFOX:
-            policy = _firefox_policy()
-            if policy is None:
-                log.append("Firefox: %s is not valid JSON, left alone. Fix or delete it and try again." % FIREFOX_POLICY)
-            else:
-                files.append((policy, FIREFOX_POLICY))
-                new.append(name)
-        else:
-            files.append((_chromium_policy(name), os.path.join(kit.BROWSERS[name][3], kit.POLICY_NAME)))
+        wanted = _firefox_files(pem) if name == kit.FIREFOX else _chromium_files(name, pem)
+        if wanted is None:
+            log.append("Firefox: %s is not valid JSON, left alone. Fix or delete it and try again." % firefox.POLICY)
+            continue
+        wanted = [(content, path) for content, path in wanted if not _same(content, path)]
+        if wanted:
+            files += wanted
             new.append(name)
+        else:
+            log.append("%s: %s set already." % (name, what))
     if not files:
         return True, log
-    if not _install(files):
-        return False, log + ["FoxyProxy NOT added to %s (cancelled or failed)." % ", ".join(new)]
-    return True, log + ["FoxyProxy added to %s: restart the browser to get it." % ", ".join(new)]
+    if not core.root_files(files):
+        return False, log + ["%s NOT set in %s (cancelled or failed)." % (what, ", ".join(new))]
+    return True, log + ["%s set in %s: restart the browser." % (what, ", ".join(new))]
 
 
-def setup(number, names):
-    """The whole job: Burp on the port, FoxyProxy in the browsers, the import file. Returns (worked, log lines)."""
-    log = write_configs(number)
-    ok, more = add_foxyproxy(names) if names else (True, [])
+def setup(number, names, trust=True):
+    """The whole job: Burp on the port, FoxyProxy in the browsers, Burp's certificate trusted there
+    (trust=False leaves the certificate out), the import file. Returns (worked, log lines)."""
+    log, pem = write_configs(number), ""
+    if trust and names:
+        pem = ca_certificate(number)
+        if pem:
+            with open(CERT, "w") as f:
+                f.write(pem)
+        else:
+            log.append("Burp's certificate: not found. Burp makes it the first time it starts: start Burp once, "
+                       "then set up again. Until then HTTPS sites show a warning through Burp.")
+    ok, more = setup_browsers(names, pem) if names else (True, [])
     log += more
     log.append("Last step, once per browser: FoxyProxy > Options > Import > choose %s > Save. Then pick Burp in "
                "FoxyProxy's menu to send the browser through Burp, Disable to stop."
                % IMPORT.replace(core.HOME, "~"))
     return ok, log
-
-
-# ---------- undo ----------
-def remove_firefox():
-    """Take FoxyProxy off Firefox's policy file again. The file goes when nothing of yours is left in it:
-    Firefox then reads the one shipped with it, as before. Needs the admin password. Returns True when done."""
-    data = _read(FIREFOX_POLICY)
-    policies = data.get("policies") if isinstance(data.get("policies"), dict) else {}
-    wanted = policies.get("ExtensionSettings") if isinstance(policies.get("ExtensionSettings"), dict) else {}
-    if FOXYPROXY_FIREFOX not in wanted:
-        return True
-    del wanted[FOXYPROXY_FIREFOX]
-    if not wanted:
-        del policies["ExtensionSettings"]
-    shipped = next((d for d in map(_read, FIREFOX_SHIPPED) if d), {})
-    if not policies or data == shipped:
-        return core._root("rm -f %s" % shlex.quote(FIREFOX_POLICY))
-    return _install([(data, FIREFOX_POLICY)])

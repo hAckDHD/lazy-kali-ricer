@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -319,6 +320,23 @@ def _root(script):
     tty = sys.stdin.isatty()
     tool = "pkexec" if (DIALOGS and _password_dialog()) or not tty else "sudo"
     return subprocess.run([tool, "sh", "-c", script]).returncode == 0
+
+
+def root_files(files, remove=()):
+    """As root, in one password prompt: put [(content, destination)] in place and delete the paths in
+    remove. Content is text, or data written as JSON. Returns True when it worked (or nothing was to do)."""
+    made = []
+    try:
+        for content, dest in files:
+            with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+                tmp.write(content) if isinstance(content, str) else json.dump(content, tmp, indent=2)
+            made.append((tmp.name, dest))
+        steps = ["install -D -m 644 %s %s" % (shlex.quote(a), shlex.quote(b)) for a, b in made]
+        steps += ["rm -f %s" % shlex.join(remove)] * bool(remove)
+        return _root(" && ".join(steps)) if steps else True
+    finally:
+        for path, _dest in made:
+            os.remove(path)
 
 
 def _apt(action, packages):
@@ -806,14 +824,18 @@ def uninstall_items():
             items.append(dict(kind="path", target=_launcher(key), label="Delete the %s launcher" % name, on=True))
     if os.path.isdir(os.path.join(HOME, ".cache", "cliphist")):
         items.append(dict(kind="clipboard", target="", label="Wipe clipboard history", on=False))
-    from . import burp, kit, term
+    from . import burp, firefox, kit, term
 
     if burp.our_launcher():
         items.append(dict(kind="path", target=burp.LAUNCHER, on=True,
                           label="Delete the Burp Suite menu entry that sets its proxy port  (Kali's own one comes back)"))
-    if burp.firefox_has_foxyproxy():
-        items.append(dict(kind="firefox", target=burp.FIREFOX_POLICY, on=True,
-                          label="Stop installing FoxyProxy into Firefox  (edits %s; asks for your password)" % burp.FIREFOX_POLICY))
+    if firefox.touched():
+        items.append(dict(kind="firefox", target=firefox.POLICY, on=True,
+                          label="Stop installing extensions into Firefox and trusting Burp's certificate there  "
+                                "(edits %s; asks for your password)" % firefox.POLICY))
+    for browser, path in burp.cert_policy_files():
+        items.append(dict(kind="policy", target=path, on=True,
+                          label="Stop %s trusting Burp's certificate  (delete %s; asks for your password)" % (browser, path)))
     for path in term.hooked():
         items.append(dict(kind="shell", target=path, label="Remove the terminal banner lines from %s" % short(path), on=True))
     for browser, path in kit.policy_files():
@@ -844,11 +866,11 @@ def uninstall(items):
     policies = [i["target"] for i in items if i["kind"] == "policy"]
     if policies:
         ok = _root("rm -f %s" % shlex.join(policies))
-        log.append(("Removed extension lists: %s" if ok else "Extension lists NOT removed (cancelled or failed): %s") % " ".join(policies))
+        log.append(("Removed browser policy files: %s" if ok else "Browser policy files NOT removed (cancelled or failed): %s") % " ".join(policies))
     if any(i["kind"] == "firefox" for i in items):
-        from . import burp
+        from . import firefox
 
-        log.append("Firefox: FoxyProxy taken off its policy file." if burp.remove_firefox()
+        log.append("Firefox: extensions and Burp's certificate taken out of its policies." if firefox.remove()
                    else "Firefox: policy file NOT changed (cancelled or failed).")
     for item in sorted(items, key=lambda i: i["target"] == OWN):  # settings folder last: it holds the manifest
         kind, target = item["kind"], item["target"]

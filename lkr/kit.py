@@ -3,14 +3,12 @@ and extra extensions, kept somewhere safe (a private git repository) for the nex
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
-import tempfile
 import time
 import uuid
 
-from . import core
+from . import core, firefox
 
 SAMPLE = os.path.join(core.REPO, "kit-sample")
 DEFAULT_DIR = os.path.join(core.HOME, "lazy-kali-kit")
@@ -27,7 +25,8 @@ BROWSERS = {
     "Chromium": ("chromium", "chromium", ".config/chromium", "/etc/chromium/policies/managed"),
     "Google Chrome": ("google-chrome", "chrome", ".config/google-chrome", "/etc/opt/chrome/policies/managed"),
 }
-# (name, Chrome Web Store id)
+FIREFOX = firefox.NAME  # covered too, by its own rules: see firefox.py
+# (name, Chrome Web Store id). firefox.ADDONS has the Firefox version of each.
 EXTENSIONS = [
     ("Bitwarden", "nngceckbapebfimnlniiiahkandclblb"),
     ("Dark Reader", "eimadpbcbfnmbkopoojfekhnkhdbieeh"),
@@ -76,15 +75,26 @@ def _lines(path):
 
 # ---------- browsers ----------
 def installed_browsers():
-    return [name for name, (cmd, *_rest) in BROWSERS.items() if shutil.which(cmd)]
+    return [name for name, (cmd, *_rest) in BROWSERS.items() if shutil.which(cmd)] + [FIREFOX] * firefox.installed()
 
 
 def _running(browser):
+    if browser == FIREFOX:
+        return firefox.running()
     return subprocess.run(["pgrep", "-x", BROWSERS[browser][1]], capture_output=True).returncode == 0
 
 
 def _bookmarks_file(browser):
     return os.path.join(core.HOME, BROWSERS[browser][2], "Default", "Bookmarks")
+
+
+def browser_bookmarks(browser):
+    """A browser's own bookmarks in the full form. Raises ValueError when it has none."""
+    if browser != FIREFOX:
+        return load_bookmarks(_bookmarks_file(browser))
+    for profile in firefox.profiles():
+        return _full(firefox.read_bookmarks(profile))
+    raise ValueError("Firefox has no profile yet")
 
 
 # ---------- extensions ----------
@@ -109,7 +119,10 @@ def kit_extension_ids(folder):
 
 
 def installed_extensions(browser):
-    """[(name, id)] of the Web Store extensions you added to a browser yourself."""
+    """[(name, id)] of the Web Store extensions you added to a browser yourself. Firefox's own add-ons
+    have other ids and are not listed."""
+    if browser == FIREFOX:
+        return []
     settings = {}
     for name in ("Preferences", "Secure Preferences"):
         try:
@@ -207,7 +220,7 @@ def build(folder, browsers, tools=True, exts=True, marks=True, scripts=True):
     if marks:
         for browser in browsers:
             try:
-                data = load_bookmarks(_bookmarks_file(browser))
+                data = browser_bookmarks(browser)
             except ValueError:
                 continue  # this browser has no bookmarks
             export_bookmarks(browser, folder)
@@ -219,14 +232,14 @@ def build(folder, browsers, tools=True, exts=True, marks=True, scripts=True):
 
 
 def policy_files():
-    """[(browser, path)] for every extension list we wrote."""
+    """[(browser, path)] for every extension list we wrote for a Chromium-family browser."""
     paths = [(name, os.path.join(b[3], POLICY_NAME)) for name, b in BROWSERS.items()]
     return [(name, path) for name, path in paths if os.path.isfile(path)]
 
 
 def chosen_extensions():
     """Ids in the extension lists written so far."""
-    ids = set()
+    ids = set(firefox.chosen())
     for _name, path in policy_files():
         try:
             with open(path) as f:
@@ -236,23 +249,35 @@ def chosen_extensions():
     return ids
 
 
+def no_firefox_version(ids):
+    """The ids among these that have no Firefox version we know of."""
+    return [i for i in ids if i not in firefox.ADDONS]
+
+
 def set_extensions(browsers, ids):
     """Tell each browser to install exactly these extensions (it does so itself on its next start).
-    An empty list removes our file again. Needs the admin password. Returns True when it worked."""
+    An empty list removes our file again. Firefox gets the Firefox version of each from
+    addons.mozilla.org; what else is in its policy file stays. Needs the admin password. Returns True
+    when it worked."""
     ids = [i for i in ids if EXT_ID.match(i)]
-    targets = [shlex.quote(os.path.join(BROWSERS[b][3], POLICY_NAME)) for b in browsers]
-    if not targets:
-        return False
-    if not ids:
-        return core._root("rm -f %s" % " ".join(targets))
-    # normal_installed: installed for you, and you can still switch it off in the browser.
-    policy = {"ExtensionSettings": {i: {"installation_mode": "normal_installed", "update_url": WEBSTORE} for i in ids}}
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
-        json.dump(policy, tmp, indent=2)
-    try:
-        return core._root(" && ".join("install -D -m 644 %s %s" % (shlex.quote(tmp.name), t) for t in targets))
-    finally:
-        os.remove(tmp.name)
+    targets = [os.path.join(BROWSERS[b][3], POLICY_NAME) for b in browsers if b != FIREFOX]
+    files, gone = [], []
+    if ids:
+        # normal_installed: installed for you, and you can still switch it off in the browser.
+        policy = {"ExtensionSettings": {i: {"installation_mode": "normal_installed", "update_url": WEBSTORE} for i in ids}}
+        files = [(policy, target) for target in targets]
+    else:
+        gone = targets
+    if FIREFOX in browsers:
+        data = firefox.load()
+        if data is None:  # someone's policy file that is not valid JSON: not ours to replace
+            return False
+        firefox.set_addons(data, ids)
+        if not firefox.tidy(data):
+            files.append((data, firefox.POLICY))
+        elif os.path.exists(firefox.POLICY):
+            gone.append(firefox.POLICY)
+    return bool(browsers) and core.root_files(files, gone)
 
 
 # ---------- bookmarks ----------
@@ -280,7 +305,14 @@ def load_bookmarks(path):
     Raises ValueError when the file is something else."""
     try:
         with open(path) as f:
-            data = json.load(f)
+            return _full(json.load(f))
+    except (OSError, ValueError) as e:
+        raise ValueError("Not a bookmarks file: %s (%s)" % (path, e)) from e
+
+
+def _full(data):
+    """Bookmarks data (a browser's own, or the short form) completed into the full form."""
+    try:
         roots = data["roots"]
         names = (("bookmark_bar", "Bookmarks bar"), ("other", "Other bookmarks"), ("synced", "Mobile bookmarks"))
         for key, name in names:
@@ -295,8 +327,8 @@ def load_bookmarks(path):
         data.setdefault("version", 1)
         data.pop("sync_metadata", None)  # belongs to one browser profile's sync state; never carry it over
         return data
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
-        raise ValueError("Not a bookmarks file: %s (%s)" % (path, e)) from e
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ValueError("Not bookmarks: %r" % e) from e
 
 
 def count_bookmarks(data):
@@ -307,10 +339,14 @@ def count_bookmarks(data):
 
 def import_bookmarks(path, browsers):
     """Replace each browser's bookmarks with the file. The old ones are kept next to it as
-    Bookmarks.bak-<time>. The browser must be closed, or it would overwrite the file on exit."""
+    Bookmarks.bak-<time>. The browser must be closed, or it would overwrite the file on exit.
+    Firefox is the exception: it gets them added beside its own (see _firefox_bookmarks)."""
     data = load_bookmarks(path)
     log, stamp = [], time.strftime("%Y%m%d-%H%M%S")
     for browser in browsers:
+        if browser == FIREFOX:
+            log.append(_firefox_bookmarks(data))
+            continue
         dest = _bookmarks_file(browser)
         if _running(browser):
             log.append("%s is open: close it and import again." % browser)
@@ -325,11 +361,25 @@ def import_bookmarks(path, browsers):
     return log
 
 
+def _firefox_bookmarks(data):
+    """Hand the bookmarks to Firefox through its policy file: it adds them beside its own the next time
+    it starts, and they replace the ones handed over before. Needs the admin password. Returns a log line."""
+    policy, entries = firefox.load(), firefox.bookmark_entries(data)
+    if policy is None:
+        return "Firefox: %s is not valid JSON, left alone. Fix or delete it and import again." % firefox.POLICY
+    firefox.set_bookmarks(policy, entries)
+    if not core.root_files([(policy, firefox.POLICY)]):
+        return "Firefox: bookmarks NOT imported (cancelled or failed)."
+    firefox.remember_bookmarks(entries)
+    return ("Firefox: %d bookmarks added beside its own; they show up the next time it starts. Folders inside "
+            "folders become one folder each." % len(entries))
+
+
 def export_bookmarks(browser, folder):
     """Copy a browser's bookmarks into the kit as bookmarks.json. Returns the new file's path."""
     os.makedirs(folder, exist_ok=True)
     dest = os.path.join(folder, "bookmarks.json")
-    data = load_bookmarks(_bookmarks_file(browser))
+    data = browser_bookmarks(browser)
     with open(dest, "w") as f:
         json.dump(data, f, indent=3)
     os.chmod(dest, 0o600)

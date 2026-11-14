@@ -4,7 +4,7 @@
   lazy-kali-ricer                 Open the GUI.
   lazy-kali-ricer apply           Write the configs from the saved settings (no GUI).
   lazy-kali-ricer banner          Show the terminal banner now, as set in the Terminal tab.
-  lazy-kali-ricer burp            Set up Burp Suite and FoxyProxy on the saved proxy port (8080 unless you chose one).
+  lazy-kali-ricer burp            Burp Suite, FoxyProxy and Burp's certificate in your browsers, on the saved proxy port.
   lazy-kali-ricer burp 8081       The same, on that port (1024-65535); the port is remembered.
   lazy-kali-ricer update          Get the newest version from GitHub and apply it.
   lazy-kali-ricer revert          Go back to the version in use before the last update.

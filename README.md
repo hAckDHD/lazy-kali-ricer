@@ -83,7 +83,7 @@ dialog, also when you started it from a terminal.
 | **Displays** | Drag your screens into place; they snap together. Pick a resolution per screen. Identify shows each screen's number on the screen itself. |
 | **Shortcuts** | Your own keyboard shortcuts: press the keys, type the command. They join the Super+K list. |
 | **Get apps** | Common programs with their icons, grouped by job: terminals, browsers, file managers, code editors, notes, screenshots and recording, chat, everyday apps, wordlists. Tick, install, and they appear in the Apps tab. See [What Get apps installs](#what-get-apps-installs). |
-| **Browsers & tools** | Your kit: tool list, your own scripts, and extensions and bookmarks for Brave, Chromium and Chrome. Build it from this system, keep it on GitHub, put it back after a reinstall. See [Your kit](#your-kit). Also sets up Burp Suite and FoxyProxy on a proxy port you pick: see [Burp Suite and FoxyProxy](#burp-suite-and-foxyproxy). |
+| **Browsers & tools** | Your kit: tool list, your own scripts, and extensions and bookmarks for Brave, Chromium, Chrome and Firefox. Build it from this system, keep it on GitHub, put it back after a reinstall. See [Your kit](#your-kit). Also sets up Burp Suite and FoxyProxy on a proxy port you pick: see [Burp Suite and FoxyProxy](#burp-suite-and-foxyproxy). |
 | **Sync devices** | Bring two of your own devices in line over Tailscale: shortcuts, zsh files, tools, browser extensions. One is the master, or merge both. See [Sync devices](#sync-devices). |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
@@ -164,28 +164,47 @@ Putting it back, after a reinstall or on another machine:
 - **Extensions.** Bitwarden, Dark Reader, Wappalyzer, Sputnik, Read Aloud and whatever your
   `extensions.txt` lists; the ones in your kit come ticked. "Set extensions" hands the list to the
   browser, which installs them itself at its next start. You still sign in to each one. The
-  browser shows "Managed by your organisation" while the list is in place.
+  browser shows "Managed by your organisation" while the list is in place. Firefox gets the
+  Firefox version of each built-in one, FoxyProxy included, from addons.mozilla.org. Extensions of
+  your own from `extensions.txt` are Chrome Web Store ids, which Firefox cannot use: those stay
+  out of Firefox, and the status line names them.
 - **Bookmarks.** "Import" replaces the bookmarks of the ticked browsers with a file: the kit's, the
   short sample form, or a `Bookmarks` file copied from any Chromium-family browser. Close the
   browser first. The previous bookmarks stay beside the new ones as `Bookmarks.bak-<time>`.
+  Firefox works differently: it keeps its own bookmarks and gets the file's added beside them at
+  its next start, open or not (asks for your password). Its bookmarks policy knows one level of
+  folders, so a folder inside a folder arrives as one folder named `Outer / Inner`. A later import
+  swaps out the ones from the import before; Uninstall takes them away again.
 
-Brave, Chromium and Google Chrome are covered, first profile only. Firefox and Tor Browser are not,
-except for FoxyProxy below, which Firefox gets too.
+Brave, Chromium and Google Chrome are covered, first profile only, and Firefox. Tor Browser is not.
+
+Firefox has a single policy file, `/etc/firefox/policies/policies.json`. It starts as a copy of
+the policy file Kali ships, so Kali's home page and defaults stay as they are, and entries in it
+that are not from lazy-kali-ricer are left alone. Build can read Firefox's bookmarks into the kit;
+it does not read Firefox's own add-ons.
 
 #### Burp Suite and FoxyProxy
 
 Pick a **proxy port** (1024 to 65535; Burp's own default is 8080) and press **Set up Burp and
-FoxyProxy**. It does three things:
+FoxyProxy**. It does four things:
 
 - **Burp.** Writes `~/.config/lazy-kali-ricer/burp/burp-project.json` with one proxy listener on
   `127.0.0.1:<port>`, and a menu entry that starts Burp with it. Start Burp from the menu and it
   listens on your port; restart it if it was open. From a terminal, the plain `burpsuite` command
   still uses Burp's default: run `burpsuite --config-file=~/.config/lazy-kali-ricer/burp/burp-project.json`.
-- **FoxyProxy in your browsers.** Adds FoxyProxy to the ticked browsers, and to Firefox when its box
-  is ticked. The browser installs it at its next start. For Brave, Chromium and Chrome it joins the
-  extension list above (what is already listed stays). Firefox gets `/etc/firefox/policies/policies.json`,
-  which starts as a copy of the policy file Kali ships, so Kali's home page and defaults stay as
-  they are. Asks for your password.
+- **FoxyProxy in your browsers.** Adds FoxyProxy to the ticked browsers, Firefox included. The
+  browser installs it at its next start. It joins the extension list above (what is already
+  listed stays). Asks for your password.
+- **Burp's certificate.** Burp reads HTTPS traffic by signing sites with its own certificate
+  authority, so a browser has to trust it or every HTTPS site shows a warning. With **Trust Burp's
+  certificate** ticked, the same browsers are told to trust it: Brave, Chromium and Chrome through
+  a policy file of its own (`lazy-kali-ricer-burp.json`), Firefox through its policy file. The
+  certificate is read from Burp's saved settings, or from Burp itself when it is running; only the
+  certificate is taken, never its private key. Burp makes it the first time it starts, so on a
+  fresh install start Burp once before Set up. A copy lands in
+  `~/.config/lazy-kali-ricer/burp/burp-ca.pem` for anything else that should trust Burp
+  (`curl --cacert`, for one). Whoever holds Burp's private key, which sits in your home folder,
+  could pose as any site to these browsers: keep this to a testing machine, or untick the box.
 - **The FoxyProxy settings file.** Writes `~/.config/lazy-kali-ricer/burp/foxyproxy-burp.json`: one
   proxy named Burp, `127.0.0.1:<port>`, switched off.
 
@@ -198,9 +217,8 @@ and that includes the on/off choice in its menu. A proxy you cannot switch off i
 
 Changed the port? Press Set up again, restart Burp, and import the file again.
 
-For HTTPS sites the browser also has to trust Burp's certificate. That part is not automated:
-with Burp running and FoxyProxy set to Burp, open `http://burpsuite`, download the CA certificate
-and import it in the browser's certificate settings.
+The certificate is trusted through policy, so it does not show up in the list of certificates
+you imported yourself: look under `chrome://policy` or `about:policies`. Uninstall takes it out again.
 
 #### Keep the kit in a private repository
 
@@ -339,7 +357,7 @@ The GUI shows what it found at the bottom of the window.
 lazy-kali-ricer                 open the GUI
 lazy-kali-ricer apply           write the configs from the saved settings
 lazy-kali-ricer banner          show the terminal banner now
-lazy-kali-ricer burp            set up Burp Suite and FoxyProxy on the saved proxy port
+lazy-kali-ricer burp            set up Burp Suite, FoxyProxy and Burp's certificate on the saved proxy port
 lazy-kali-ricer burp 8081       the same, on that port; the port is remembered
 lazy-kali-ricer update          get the newest version from GitHub and apply it
 lazy-kali-ricer revert          go back to the version in use before the last update
@@ -390,8 +408,9 @@ list of everything it would undo, and you decide line by line:
 - clipboard history (unticked by default);
 - each package `install.sh`, the Get apps tab or your `tools.txt` added (unticked by default; asks for your password);
 - the extension list given to each browser (asks for your password);
-- the Burp Suite menu entry that sets its proxy port, and FoxyProxy on Firefox's policy file
-  (asks for your password; the file is deleted when nothing else is in it);
+- the Burp Suite menu entry that sets its proxy port; in Firefox's policy file the extensions,
+  bookmarks and Burp's certificate (the file is deleted when nothing else is in it), and the
+  certificate policy of the other browsers (asks for your password);
 - the Amazon Music and YouTube Music launchers.
 
 Not undone: imported bookmarks (rename `Bookmarks.bak-<time>` back yourself), scripts and
@@ -440,8 +459,9 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `lkr/core.py` | Themes, app detection, config rendering, debug report |
 | `lkr/gui.py` | The GTK window |
 | `lkr/kit.py` | Browser extensions, bookmarks, tool list |
-| `lkr/burp.py` | Burp Suite proxy port, FoxyProxy in your browsers |
-| `~/.config/lazy-kali-ricer/burp/` | `burp-project.json` for Burp, `foxyproxy-burp.json` to import in FoxyProxy |
+| `lkr/firefox.py` | Firefox's side of those: its policy file, add-on ids, reading its bookmarks |
+| `lkr/burp.py` | Burp Suite proxy port, FoxyProxy and Burp's certificate in your browsers |
+| `~/.config/lazy-kali-ricer/burp/` | `burp-project.json` for Burp, `foxyproxy-burp.json` to import in FoxyProxy, `burp-ca.pem` |
 | `lkr/sync.py` | Sync between your devices over Tailscale |
 | `lkr/term.py`, `lkr/fetch.py` | Terminal banner: art and picture rendering; the script a new terminal runs |
 | `art/` | Built-in banner art |
