@@ -10,6 +10,14 @@
   lazy-kali-ricer debug off       Stop mirroring.
   lazy-kali-ricer debug report    Save a shareable report (versions, settings, config errors, log tail).
   lazy-kali-ricer uninstall       List every change it would undo and ask about each one.
+
+Sync with another of your devices over Tailscale (shortcuts, zsh files, tools, browser extensions):
+  lazy-kali-ricer sync devices           List your other devices.
+  lazy-kali-ricer sync compare <device>  Show what each device has and the other lacks.
+  lazy-kali-ricer sync from <device>     That device is the master: make this one like it.
+  lazy-kali-ricer sync to <device>       This device is the master: make that one like it.
+  lazy-kali-ricer sync merge <device>    Each device gains what only the other has.
+<device> is its Tailscale name, or user@name when your user name differs there.
 """
 import os
 import sys
@@ -48,5 +56,8 @@ elif args == ["uninstall"]:
         print("\n".join(core.uninstall(chosen)))
     else:
         print("Nothing changed.")
+elif args[:1] == ["sync"]:
+    from lkr import sync
+    sync.command(args[1:]) or sys.exit(__doc__)
 else:
     sys.exit(__doc__)

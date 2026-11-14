@@ -13,7 +13,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
-from . import core, kit  # noqa: E402
+from . import core, kit, sync  # noqa: E402
 
 NONE, CUSTOM_CMD = "", "__custom__"
 
@@ -41,7 +41,7 @@ class Ricer(Gtk.Window):
         book = Gtk.Notebook()
         outer.pack_start(book, True, True, 0)
         for title, build in (("Apps", self.page_apps), ("Displays", self.page_displays), ("Shortcuts", self.page_shortcuts),
-                             ("Get apps", self.page_get_apps), ("Browsers & tools", self.page_kit),
+                             ("Get apps", self.page_get_apps), ("Browsers & tools", self.page_kit), ("Sync devices", self.page_sync),
                              ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
                              ("Clipboard", self.page_clipboard), ("Update & debug", self.page_debug),
                              ("Uninstall", self.page_uninstall)):
@@ -865,6 +865,114 @@ class Ricer(Gtk.Window):
                 self.status.set_text("\n".join(kit.import_bookmarks(path, browsers)))
         except (OSError, ValueError) as e:
             self.status.set_text("Failed: %s" % e)
+
+    # ----- Sync devices -----
+    def page_sync(self, page):
+        self.note(page, "Bring two of your own devices in line over Tailscale: your shortcuts, zsh files, tools and "
+                        "browser extensions. Both need lazy-kali-ricer and the same Tailscale account. Screens, apps "
+                        "and the theme stay per device. What travels is what was last applied here.")
+        self.sync_note = Gtk.Label(xalign=0, wrap=True, selectable=True, no_show_all=True)
+        page.pack_start(self.sync_note, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        self.sync_device = Gtk.ComboBoxText(hexpand=True)
+        refresh = Gtk.Button(label="Look again")
+        refresh.connect("clicked", lambda *_: self.fill_sync())
+        self.sync_user = Gtk.Entry(text=sync.default_user(), width_chars=12,
+                                   tooltip_text="Your user name on the other device")
+        for widget, grow in ((Gtk.Label(label="Other device:"), False), (self.sync_device, True), (refresh, False),
+                             (Gtk.Label(label="User there:"), False), (self.sync_user, False)):
+            row.pack_start(widget, grow, grow, 0)
+        page.pack_start(row, False, False, 0)
+        self.sync_allow = Gtk.Button(halign=Gtk.Align.START)
+        self.sync_allow.connect("clicked", self.on_sync_allow)
+        page.pack_start(self.sync_allow, False, False, 0)
+        self.note(page, "A device has to let the other one in before the two can sync: press this on the device you "
+                        "want to reach. It switches on Tailscale SSH, which lets your own devices on your tailnet "
+                        "open a shell here, as your Tailscale access rules allow.")
+        row = Gtk.Box(spacing=14)
+        self.sync_parts = []  # (checkbox, key)
+        for key, label in sync.PARTS.items():
+            box = Gtk.CheckButton(label=label, active=True)
+            self.sync_parts.append((box, key))
+            row.pack_start(box, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        for label, mode, tip in (
+                ("Compare", "compare", "Only look: what each device has and the other lacks."),
+                ("Copy from it", "from", "The other device is the master: this one becomes like it."),
+                ("Copy to it", "to", "This device is the master: the other one becomes like it."),
+                ("Merge both", "merge", "Each device gains what only the other has. Nothing is replaced.")):
+            button = Gtk.Button(label=label, tooltip_text=tip)
+            button.connect("clicked", self.on_sync, mode)
+            row.pack_start(button, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        self.note(page, "Copy: the master's shortcuts and zsh files replace the other device's (the old ones are kept "
+                        "as backups). Merge: where both have the same shortcut keys or zsh file with different "
+                        "content, each keeps its own and you are told. Tools, scripts and extensions are only ever "
+                        "added. The device you sit at installs them right away; the other one lists them in its kit, "
+                        "to install from its Browsers & tools tab.")
+        self.sync_result = Gtk.Label(xalign=0, yalign=0, wrap=True, selectable=True)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.add(self.sync_result)
+        page.pack_start(scroll, True, True, 0)
+        self.sync_ui = types.SimpleNamespace(say=lambda text: self.from_thread(self.status.set_text, text),
+                                             open=lambda url: self.from_thread(self.open_page, url))
+        self.fill_sync()
+
+    def fill_sync(self):
+        """List the other devices and show whether this one lets them in."""
+        trouble = sync.problem()
+        self.sync_note.set_text(trouble)
+        self.sync_note.set_visible(bool(trouble))
+        self.sync_found = {d["name"]: d for d in sync.devices()}
+        self.sync_device.remove_all()
+        for name, dev in self.sync_found.items():
+            self.sync_device.append(name, name if dev["online"] else name + "  — offline")
+        self.sync_device.set_active(0)
+        self.sync_open = sync.reachable()
+        self.sync_allow.set_label("Stop letting my other devices reach this one" if self.sync_open
+                                  else "Let my other devices reach this one")
+        self.sync_allow.set_sensitive(not trouble)
+
+    def on_sync_allow(self, button):
+        def done(ok):
+            self.fill_sync()
+            self.status.set_text("Cancelled or failed." if not ok else
+                                 "Your other devices can sync with this one now." if self.sync_open else
+                                 "Your other devices can no longer reach this one.")
+
+        self.background(button, lambda: sync.allow(not self.sync_open), done)
+
+    def on_sync(self, button, mode):
+        dev = self.sync_found.get(self.sync_device.get_active_id() or "")
+        parts = [key for box, key in self.sync_parts if box.get_active()]
+        user = self.sync_user.get_text().strip()
+        if not dev or not parts or not user:
+            self.status.set_text("Pick the other device and tick what to sync first.")
+            return
+        ask = {"from": "Make this device like %s?\n\nIts shortcuts and zsh files replace the ones here. "
+                       "The ones here are kept as backups.",
+               "to": "Make %s like this device?\n\nThe shortcuts and zsh files here replace the ones there. "
+                     "The ones there are kept as backups."}
+        if mode in ask and not self.confirm(ask[mode] % dev["name"]):
+            return
+        sync.remember_user(user)
+
+        def done(result):
+            lines, changed = result
+            self.sync_result.set_text("\n".join(lines))
+            self.status.set_text("Shortcuts changed: press Apply to switch them on." if changed else "Done: see the Sync devices tab.")
+            if changed:
+                for row in self.shortcut_rows.get_children():
+                    self.shortcut_rows.remove(row)
+                self.s["shortcuts"] = core.load()["shortcuts"]
+                for sc in self.s["shortcuts"]:
+                    self.add_shortcut(sc)
+            self.fill_kit()
+            self.list_catalog()
+            self.fill_apps()
+
+        self.background(button, lambda: sync.sync(dev, user, mode, parts, self.sync_ui), done)
 
     # ----- Theme -----
     def page_theme(self, page):

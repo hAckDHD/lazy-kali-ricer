@@ -11,6 +11,7 @@ options, press **Apply**. No config files to edit.
 - **Your own shortcuts.** Press a key combination, give it a command.
 - **Get more apps.** Tick to install: terminals, browsers (Brave, Tor Browser), code editors (VS Code, VSCodium), notes, screenshot and recording tools, chat (Discord, Signal, Matrix, WhatsApp), music (Spotify, Amazon Music, YouTube Music) and more, each with its icon.
 - **Your setup back in minutes.** Your tool list, your own scripts, browser extensions and bookmarks live in a kit folder. One Build button fills it from the system you are on; two buttons keep it in a private GitHub repository.
+- **Two machines, one setup.** Sync shortcuts, zsh files, tools and browser extensions between your devices over Tailscale: pick a master, or merge both.
 - **Your wallpaper.** One image, a plain colour, or a folder that rotates on a timer or a key.
 - **Adapts to the machine.** Laptop or desktop, AMD or Intel CPU, AMD, NVIDIA or Intel graphics.
 - **Safe to try.** Existing configs are backed up before anything is written.
@@ -83,6 +84,7 @@ dialog, also when you started it from a terminal.
 | **Shortcuts** | Your own keyboard shortcuts: press the keys, type the command. They join the Super+K list. |
 | **Get apps** | Common programs with their icons, grouped by job: terminals, browsers, file managers, code editors, notes, screenshots and recording, chat, everyday apps, wordlists. Tick, install, and they appear in the Apps tab. See [What Get apps installs](#what-get-apps-installs). |
 | **Browsers & tools** | Your kit: tool list, your own scripts, and extensions and bookmarks for Brave, Chromium and Chrome. Build it from this system, keep it on GitHub, put it back after a reinstall. See [Your kit](#your-kit). |
+| **Sync devices** | Bring two of your own devices in line over Tailscale: shortcuts, zsh files, tools, browser extensions. One is the master, or merge both. See [Sync devices](#sync-devices). |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
@@ -190,6 +192,37 @@ nothing to type in a terminal; `git` comes with `install.sh`, and the GitHub com
 So after a reinstall: `./install.sh`, **Get from GitHub**, then Install tools and scripts, Set
 extensions and Import.
 
+### Sync devices
+
+For when you have more than one machine. The Sync devices tab lines two of them up over
+[Tailscale](https://tailscale.com): your own shortcuts, your zsh files (`.zshrc`, `.zshenv`,
+`.zprofile`, `.zlogin`, `.zlogout`, `.zsh_aliases`, `.p10k.zsh`; never the history), your tools and
+scripts, and your browser extensions. Screens, apps and the theme stay per device.
+
+Both devices need lazy-kali-ricer and the same Tailscale account. On the device you want to reach,
+press **Let my other devices reach this one** once. That switches on Tailscale SSH there: your own
+devices on your tailnet can then open a shell on it, as your Tailscale access rules allow. The same
+button switches it off again. A device that already accepts your SSH key works without it.
+
+Pick the other device, tick what to sync, then:
+
+- **Compare** only looks: what each device has and the other lacks.
+- **Copy from it** makes the other device the master. Its shortcuts and zsh files replace the ones
+  here. The old ones are kept: zsh files as `<name>.bak-<time>`, shortcuts in
+  `~/.config/lazy-kali-ricer/shortcuts-before-sync.json`.
+- **Copy to it** is the same the other way round: this device is the master.
+- **Merge both** gives each device what only the other has. Nothing is replaced. Where both have the
+  same shortcut keys with another command, each keeps its own. Where both have the same zsh file with
+  other content, each keeps its own and gets the other one next to it as `<name>.from-<device>`.
+
+Tools, scripts and extensions are only ever added, never removed. The device you sit at installs
+them right away. The other one cannot ask for a password, so it lists them in its kit: install them
+there from the Browsers & tools tab.
+
+Devices with different architectures (say a laptop and an ARM board) sync fine. Each device installs
+its own packages, so one that does not exist for it is named and skipped. Compiled programs in
+`~/tools` are not copied to a device with another architecture; scripts are.
+
 ### Themes
 
 `hAckDHD's theme` (neon green + purple, chasing light), `Kali Dragon`, `Synthwave`,
@@ -257,7 +290,15 @@ lazy-kali-ricer debug on        mirror the Hyprland log to ~/.cache/lazy-kali-ri
 lazy-kali-ricer debug off       stop mirroring
 lazy-kali-ricer debug report    save ~/.cache/lazy-kali-ricer/debug-report.txt
 lazy-kali-ricer uninstall       list every change and ask about each one
+
+lazy-kali-ricer sync devices           list your other devices on Tailscale
+lazy-kali-ricer sync compare <device>  show what each device has and the other lacks
+lazy-kali-ricer sync from <device>     that device is the master: make this one like it
+lazy-kali-ricer sync to <device>       this device is the master: make that one like it
+lazy-kali-ricer sync merge <device>    each device gains what only the other has
 ```
+
+`<device>` is its Tailscale name, or `user@name` when your user name differs there.
 
 ## Updating
 
@@ -330,6 +371,7 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `lkr/core.py` | Themes, app detection, config rendering, debug report |
 | `lkr/gui.py` | The GTK window |
 | `lkr/kit.py` | Browser extensions, bookmarks, tool list |
+| `lkr/sync.py` | Sync between your devices over Tailscale |
 | `kit-sample/` | Templates for your kit folder |
 | `~/lazy-kali-kit/` | Your kit: `tools.txt`, `bookmarks.json`, `extensions.txt`, `tools/` |
 | `~/tools/` | Your scripts, and the repositories `tools.txt` clones |

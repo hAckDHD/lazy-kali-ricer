@@ -135,20 +135,25 @@ def add_extensions(folder, found):
     return [name for name, _id in new]
 
 
-def _mirror(src, dest, replace):
-    """Copy a folder tree: every folder (empty ones too) and every file, minus git checkouts, caches,
-    virtual environments, links and files over BIG. With replace=False a file already at the
-    destination is left alone. Returns (files copied, files left alone, names skipped for size)."""
-    copied, kept, big = 0, 0, []
+def own_files(src):
+    """Walk a folder tree as (folder, [file names]): every folder (empty ones too), minus git checkouts,
+    caches, virtual environments and links."""
     for root, dirs, files in os.walk(src):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not os.path.islink(os.path.join(root, d))
                          and not os.path.isdir(os.path.join(root, d, ".git")))
+        yield root, [n for n in sorted(files) if n != ".gitkeep" and not os.path.islink(os.path.join(root, n))
+                     and os.path.isfile(os.path.join(root, n))]
+
+
+def _mirror(src, dest, replace):
+    """Copy what own_files() finds, minus files over BIG. With replace=False a file already at the
+    destination is left alone. Returns (files copied, files left alone, names skipped for size)."""
+    copied, kept, big = 0, 0, []
+    for root, files in own_files(src):
         there = os.path.join(dest, os.path.relpath(root, src))
         os.makedirs(there, exist_ok=True)
-        for name in sorted(files):
+        for name in files:
             a, b = os.path.join(root, name), os.path.join(there, name)
-            if os.path.islink(a) or not os.path.isfile(a) or name == ".gitkeep":
-                continue
             if os.path.getsize(a) > BIG:
                 big.append(os.path.relpath(a, src))
             elif os.path.exists(b) and not replace:
