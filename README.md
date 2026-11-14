@@ -88,7 +88,7 @@ dialog, also when you started it from a terminal.
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
-| **Update & debug** | Check for updates, update, go back to the previous version. Logging switch and a button that saves a report. |
+| **Update & debug** | Every version in a list: which one is installed, which are newer, where you were before. Update, or pick a line to roll back to it. Logging switch and a button that saves a report. |
 | **Uninstall** | Every change it made, one line each. Untick what you want to keep. |
 
 ### What Get apps installs
@@ -285,7 +285,9 @@ lazy-kali-ricer                 open the GUI
 lazy-kali-ricer apply           write the configs from the saved settings
 lazy-kali-ricer update          get the newest version from GitHub and apply it
 lazy-kali-ricer revert          go back to the version in use before the last update
+lazy-kali-ricer revert v12      roll back (or forward) to that version
 lazy-kali-ricer version         show the installed version
+lazy-kali-ricer versions        list the versions: installed, newer, where to go back to
 lazy-kali-ricer debug on        mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log
 lazy-kali-ricer debug off       stop mirroring
 lazy-kali-ricer debug report    save ~/.cache/lazy-kali-ricer/debug-report.txt
@@ -308,8 +310,15 @@ In the **Update & debug** tab, or from a terminal:
   again with your saved settings, and reopens the window.
 - **Go back to the previous version** (`lazy-kali-ricer revert`) returns to the version you had
   before the last update. Press it again to go one update further back.
+- **The version list** (`lazy-kali-ricer versions`) shows every version, newest first, numbered
+  v1, v2, …: the installed one, newer ones on GitHub, and the one you had before the last update.
+  Pick an older line and press **Roll back to v12** (`lazy-kali-ricer revert v12`); pick a newer
+  one, or press Update, to come forward again.
 
-Both refuse to run if you changed the tool's own files by hand, so nothing of yours is overwritten.
+Updates, installs and syncs open a small window with a progress bar and every step so far. It
+stays open with the outcome until you close it.
+
+All of them refuse to run if you changed the tool's own files by hand, so nothing of yours is overwritten.
 If an update leaves the window unable to open, `lazy-kali-ricer revert` in a terminal still works.
 
 ## Uninstall

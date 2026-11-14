@@ -28,11 +28,83 @@ def to_rgba(hex_colour):
     return c
 
 
+class Progress(Gtk.Window):
+    """Small window for a job that takes a while: what it is doing now, a progress bar, and every step so far.
+    It stays open when the job ends, showing the outcome, until it is closed."""
+
+    def __init__(self, parent, title, steps=None):
+        super().__init__(title=title, transient_for=parent, destroy_with_parent=True,
+                         type_hint=Gdk.WindowTypeHint.DIALOG, window_position=Gtk.WindowPosition.CENTER_ON_PARENT)
+        self.set_default_size(540, 320)
+        self.set_border_width(14)
+        self.steps, self.said, self.running = steps, 0, True
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.add(box)
+        self.now = Gtk.Label(xalign=0, wrap=True)
+        self.now.get_style_context().add_class("heading")
+        self.bar = Gtk.ProgressBar(show_text=True)
+        self.log = Gtk.Label(xalign=0, yalign=0, wrap=True)
+        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.scroll.add(self.log)
+        self.close_button = Gtk.Button(label="Close", halign=Gtk.Align.END, sensitive=False)
+        self.close_button.connect("clicked", lambda *_: self.destroy())
+        box.pack_start(self.now, False, False, 0)
+        box.pack_start(self.bar, False, False, 0)
+        box.pack_start(self.scroll, True, True, 0)
+        box.pack_start(self.close_button, False, False, 0)
+        self.connect("delete-event", lambda *_: self.running)  # no closing while the job runs
+        self.lines, self.part = [], None
+        self.say(title + " …")
+        self.pulse = GLib.timeout_add(120, self.tick)
+        self.show_all()
+
+    def tick(self):
+        if self.running and self.part is None:  # nothing to measure: show that it is alive
+            self.bar.pulse()
+        return self.running
+
+    def write(self, text):
+        self.lines.append(text)
+        self.log.set_text("\n".join(self.lines))
+        GLib.idle_add(lambda: self.scroll.get_vadjustment().set_value(self.scroll.get_vadjustment().get_upper()) and False)
+
+    def say(self, text, part=None):
+        """The job reached a step. part is how far along it is, 0 to 1; without it, each step counts as one of `steps`."""
+        if not self.running:
+            return
+        if self.lines:
+            self.lines[-1] = "✓  " + self.lines[-1][3:]
+        self.now.set_text(text)
+        self.write("…  " + text)
+        if part is None and self.steps:
+            part = min(self.said / self.steps, 0.95)
+        self.said += 1
+        self.part = part
+        if part is not None:
+            self.bar.set_fraction(part)
+            self.bar.set_text("%d%%" % round(part * 100))
+        else:
+            self.bar.set_text("Working …")
+
+    def finish(self, text, failed=False):
+        if self.lines:
+            self.lines[-1] = ("✗  " if failed else "✓  ") + self.lines[-1][3:]
+        self.running = False
+        self.now.set_text("Did not finish" if failed else "Done")
+        self.bar.set_fraction(1.0 if not failed else self.part or 0.0)
+        self.bar.set_text("Stopped" if failed else "100%")
+        self.write("\n" + text)
+        self.log.set_selectable(True)  # the outcome can be copied
+        self.close_button.set_sensitive(True)
+        self.close_button.grab_focus()
+
+
 class Ricer(Gtk.Window):
     def __init__(self):
         super().__init__(title="lazy-kali-ricer")
         self.set_default_size(760, 640)
         self.set_border_width(12)
+        self.progress = None  # the Progress window of the job running now
         self.s = core.load()
         self.loading = True  # widgets are being filled: do not treat it as the user editing
 
@@ -95,6 +167,27 @@ class Ricer(Gtk.Window):
             done(result)
 
         threading.Thread(target=lambda: GLib.idle_add(finish, work()), daemon=True).start()
+
+    def job(self, button, title, work, done, steps=None):
+        """Like background(), with a Progress window. work(say) runs off the GUI thread and reports its steps
+        through say(text, part=None). done(result) puts the outcome in the status line, which the window also
+        shows; when done returns (text, failed), the window shows that instead."""
+        box = self.progress = Progress(self, title, steps)
+
+        def finish(result):
+            self.progress = None
+            shown = done(result)
+            text, failed = shown if isinstance(shown, tuple) else (self.status.get_text(), False)
+            box.finish(text, failed)
+
+        self.background(button, lambda: work(lambda text, part=None: GLib.idle_add(box.say, text, part) and None), finish)
+
+    def say(self, text):
+        """A step of a running job, from any thread: to its Progress window, or the status line when it has none."""
+        def show():
+            self.progress.say(text) if self.progress else self.status.set_text(text)
+
+        GLib.idle_add(show)
 
     def check(self, page, text, key):
         box = Gtk.CheckButton(label=text, active=bool(self.s[key]))
@@ -502,17 +595,19 @@ class Ricer(Gtk.Window):
             self.list_catalog()
             self.fill_apps()
             return
-        self.get_button.set_sensitive(False)
-        self.status.set_text("Installing %s … (enter your password in the dialog)" % ", ".join(packages))
+        names = ", ".join(packages)
+
+        def work(say):
+            say("Installing %s … (enter your password in the dialog)" % names)
+            return core.install_packages(packages)
 
         def done(ok):
-            self.get_button.set_sensitive(True)
             self.list_catalog()
             self.fill_apps()
-            if not ok:
-                self.status.set_text("Install cancelled or failed: %s" % ", ".join(packages))
+            self.status.set_text("Installed: %s" % names if ok else "Install cancelled or failed: %s" % names)
+            return self.status.get_text(), not ok
 
-        threading.Thread(target=lambda: GLib.idle_add(done, core.install_packages(packages)), daemon=True).start()
+        self.job(self.get_button, "Installing apps", work, done)
 
     # ----- Browsers & tools -----
     def page_kit(self, outer):
@@ -562,7 +657,7 @@ class Ricer(Gtk.Window):
         self.code_box = None
         # kit.upload / kit.download run off the GUI thread and reach the person through these.
         self.kit_ui = types.SimpleNamespace(
-            say=lambda text: self.from_thread(self.status.set_text, text),
+            say=self.say,
             code=lambda code: self.from_thread(self.show_code, code),
             ask_repo=lambda allow_new: self.from_thread(self.ask_repo, allow_new),
             confirm=lambda text: self.from_thread(self.confirm, text))
@@ -766,7 +861,7 @@ class Ricer(Gtk.Window):
             if os.path.isdir(folder):
                 self.use_kit(folder)
 
-        self.background(button, lambda: action(folder, self.kit_ui), done)
+        self.job(button, "Your kit on GitHub", lambda _say: action(folder, self.kit_ui), done)
 
     def on_kit_sample(self, _button):
         folder = kit.kit_dir(self.s)
@@ -781,14 +876,13 @@ class Ricer(Gtk.Window):
 
     def on_kit_tools(self, button):
         folder = kit.kit_dir(self.s)
-        self.status.set_text("Installing your tools … (enter your password in the dialog; cloning can take a while)")
-
         def done(log):
             self.status.set_text("\n".join(log[-4:]))
             self.list_catalog()
             self.fill_apps()
+            return "\n".join(log), False
 
-        self.background(button, lambda: kit.install_tools(folder), done)
+        self.job(button, "Installing your tools", lambda say: kit.install_tools(folder, say), done)
 
     def on_kit_build(self, _button):
         folder = kit.kit_dir(self.s)
@@ -915,7 +1009,7 @@ class Ricer(Gtk.Window):
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroll.add(self.sync_result)
         page.pack_start(scroll, True, True, 0)
-        self.sync_ui = types.SimpleNamespace(say=lambda text: self.from_thread(self.status.set_text, text),
+        self.sync_ui = types.SimpleNamespace(say=self.say,
                                              open=lambda url: self.from_thread(self.open_page, url))
         self.fill_sync()
 
@@ -971,8 +1065,12 @@ class Ricer(Gtk.Window):
             self.fill_kit()
             self.list_catalog()
             self.fill_apps()
+            wrong = ("Failed:", "Could not ", "is not installed on", "answered with an error", "has an older lazy-kali-ricer")
+            return "\n".join(lines), any(mark in line for line in lines for mark in wrong)
 
-        self.background(button, lambda: sync.sync(dev, user, mode, parts, self.sync_ui), done)
+        titles = {"compare": "Comparing with %s", "from": "Copying from %s", "to": "Copying to %s", "merge": "Merging with %s"}
+        steps = {"compare": 1, "from": 2, "to": 1, "merge": 3}  # how often sync.sync reports a step
+        self.job(button, titles[mode] % dev["name"], lambda _say: sync.sync(dev, user, mode, parts, self.sync_ui), done, steps[mode])
 
     # ----- Theme -----
     def page_theme(self, page):
@@ -1241,14 +1339,28 @@ class Ricer(Gtk.Window):
     # ----- Debug -----
     def page_debug(self, page):
         self.head(page, "Update")
-        self.note(page, "Gets the newest lazy-kali-ricer from GitHub, writes your configs again with your saved "
-                        "settings, and reopens this window. \"Go back\" returns to the version you had before the "
-                        "last update. Same as:  lazy-kali-ricer update | revert")
+        self.note(page, "Every version is listed here, newest first. Update gets the newest one from GitHub; pick an "
+                        "older line to roll back to it, or a newer one to come forward again. Either way your configs "
+                        "are written again with your saved settings and this window reopens. Same as:\n"
+                        "    lazy-kali-ricer versions | update | revert | revert v12")
         self.version_label = Gtk.Label(xalign=0, wrap=True, selectable=True)
         page.pack_start(self.version_label, False, False, 0)
+        # state shown, "v12", date, what changed, commit id, weight of the line
+        self.version_rows = Gtk.ListStore(str, str, str, str, str, int)
+        self.version_list = Gtk.TreeView(model=self.version_rows, headers_visible=True, enable_search=False)
+        for i, title in enumerate(("", "Version", "Date", "What changed")):
+            cell = Gtk.CellRendererText(ellipsize=3 if i == 3 else 0)  # 3: cut long lines at the end
+            column = Gtk.TreeViewColumn(title, cell, text=i, weight=5)
+            column.set_expand(i == 3)
+            self.version_list.append_column(column)
+        self.version_list.get_selection().connect("changed", lambda *_: self.fill_version_buttons())
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, shadow_type=Gtk.ShadowType.IN, min_content_height=110)
+        scroll.add(self.version_list)
+        page.pack_start(scroll, True, True, 0)
         row = Gtk.Box(spacing=8)
         self.update_buttons = {}
-        for key, label in (("check", "Check for updates"), ("update", "Update"), ("revert", "Go back to the previous version")):
+        for key, label in (("check", "Check for updates"), ("update", "Update to the newest"),
+                           ("revert", "Go back to the previous version"), ("switch", "Switch to the picked version")):
             button = Gtk.Button(label=label)
             button.connect("clicked", self.on_update, key)
             self.update_buttons[key] = button
@@ -1271,39 +1383,83 @@ class Ricer(Gtk.Window):
         page.pack_start(report, False, False, 0)
 
     def fill_version(self):
-        now, earlier = core.version(), core.previous_versions()
-        self.version_label.set_text("Installed:  %s%s" % (
-            now or "unknown (not installed with git clone)",
-            "\nBefore the last update:  %s" % (core.version(earlier[-1]) or earlier[-1][:7]) if earlier else ""))
-        self.update_buttons["revert"].set_sensitive(bool(earlier))
+        """List the versions and say which one is installed. Does not ask GitHub: "Check for updates" does."""
+        now, found = core.version(), core.versions()
+        newer = sum(v["state"] == "newer" for v in found)
+        earlier = next((v for v in found if v["previous"]), None)
+        self.version_label.set_markup("<b>Installed:</b>  %s%s%s" % (
+            GLib.markup_escape_text(now or "unknown (not installed with git clone)"),
+            "\n<b>Newer on GitHub:</b>  %d version%s — press Update" % (newer, "s" * (newer > 1)) if newer else "",
+            "\n<b>Before the last update:</b>  v%d  %s" % (earlier["number"], GLib.markup_escape_text(earlier["what"])) if earlier else ""))
+        marks = {"current": "●  installed", "newer": "↑  newer", "own": "not on GitHub yet", "older": ""}
+        self.version_rows.clear()
+        for v in found:
+            mark = marks[v["state"]] or ("↩  before last update" if v["previous"] else "")
+            self.version_rows.append([mark, "v%d" % v["number"], v["date"], v["what"], v["id"], 700 if v["state"] == "current" else 400])
+        self.versions = {v["id"]: v for v in found}
+        self.fill_version_buttons()
+
+    def picked_version(self):
+        rows, at = self.version_list.get_selection().get_selected()
+        return self.versions.get(rows[at][4]) if at else None
+
+    def fill_version_buttons(self):
+        now, picked = bool(core.version()), self.picked_version()
         for key in ("check", "update"):
-            self.update_buttons[key].set_sensitive(bool(now))
+            self.update_buttons[key].set_sensitive(now)
+        self.update_buttons["revert"].set_sensitive(bool(core.previous_versions()))
+        usable = bool(picked) and picked["state"] in ("newer", "older")
+        self.update_buttons["switch"].set_sensitive(usable)
+        self.update_buttons["switch"].set_label(
+            "Switch to the picked version" if not usable else
+            ("Roll back to v%d" if picked["state"] == "older" else "Move forward to v%d") % picked["number"])
 
     def on_update(self, button, key):
         if key == "check":
-            self.status.set_text("Asking GitHub …")
-
             def checked(result):
                 count, news = result
                 self.status.set_text(news if count < 0 else "You have the newest version." if count == 0 else
                                      "%d newer version%s:\n%s" % (count, "s" * (count > 1), news))
+                self.fill_version()
+                return self.status.get_text(), count < 0
 
-            self.background(button, core.update_check, checked)
+            def check(say):
+                say("Asking GitHub …")
+                return core.update_check()
+
+            self.job(button, "Checking for updates", check, checked)
             return
-        self.status.set_text("Updating …" if key == "update" else "Going back …")
+        picked = self.picked_version()
+        if key == "switch":
+            if not picked:
+                return
+            if picked["state"] == "older" and not self.confirm(
+                    "Roll back to v%d?\n\n%s  %s\n\nYour configs are written again by that version, with the settings "
+                    "you have now. Update, or picking a newer line here, brings you forward again."
+                    % (picked["number"], picked["date"], picked["what"])):
+                return
+        action = {"update": core.update, "revert": core.revert,
+                  "switch": lambda say: core.switch_to(picked["id"], say)}[key]
+        title = {"update": "Updating", "revert": "Going back to the previous version",
+                 "switch": "Switching to v%d" % picked["number"] if picked else ""}[key]
 
-        def work():
-            changed, message = core.update() if key == "update" else core.revert()
-            return changed, message + ("\n" + core.reapply() if changed else "")
+        def work(say):
+            changed, message = action(say)
+            if changed:
+                say("Writing your configs again with that version …", 0.7)
+                message += "\n" + core.reapply()
+            return changed, message
 
         def done(result):
             changed, message = result
             self.status.set_text(message)
             self.fill_version()
             if changed:  # the files on disk are another version now: start again with them
-                GLib.timeout_add(1500, lambda: os.execv(sys.executable, [sys.executable, os.path.join(core.REPO, "lazy-kali-ricer")]))
+                GLib.timeout_add(2500, lambda: os.execv(sys.executable, [sys.executable, os.path.join(core.REPO, "lazy-kali-ricer")]))
+                return message + "\n\nThis window reopens in a moment with that version.", False
+            return message, not message.startswith("Already")
 
-        self.background(button, work, done)
+        self.job(button, title, work, done)
 
     # ----- Uninstall -----
     def page_uninstall(self, page):

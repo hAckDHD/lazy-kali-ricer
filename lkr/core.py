@@ -869,10 +869,51 @@ def _git(*args):
     return done.returncode == 0, (done.stdout + done.stderr).strip()
 
 
+def _number(commit="HEAD"):
+    """Version number of a commit: how many versions came before it, itself included."""
+    ok, out = _git("rev-list", "--count", "--first-parent", commit)
+    return int(out) if ok and out.isdigit() else 0
+
+
 def version(commit="HEAD"):
-    """One line for a version: short id, date, what changed. "" when the tool was not installed with git."""
+    """One line for a version: number, short id, date, what changed. "" when the tool was not installed with git."""
     ok, out = _git("log", "-1", "--format=%h  %cs  %s", commit)
-    return out if ok else ""
+    return "v%d  %s" % (_number(commit), out) if ok else ""
+
+
+def versions(limit=40):
+    """The versions this copy knows about, newest first, without asking GitHub (update_check() does that).
+    Each is {"id", "short", "number", "date", "what", "state"}; state is "newer" (on GitHub, not installed),
+    "current", "older", or "own" (a commit made here that GitHub does not have). The version in use before
+    the last update also has "previous": True."""
+    head = _git("rev-parse", "HEAD")
+    if not head[0]:
+        return []
+    head, earlier = head[1], previous_versions()
+
+    def listed(ref, *more):
+        ok, out = _git("log", "--first-parent", "--format=%H%x09%h%x09%cs%x09%s", "-n", str(limit), ref, *more)
+        rows = [line.split("\t", 3) for line in out.splitlines()] if ok else []
+        top = _number(rows[0][0]) if rows else 0
+        return [dict(id=r[0], short=r[1], number=top - i, date=r[2], what=r[3]) for i, r in enumerate(rows) if len(r) == 4]
+
+    followed = _git("rev-parse", "@{u}")[0]
+    own = listed("@{u}..HEAD") if followed else []
+    newer = set(_git("rev-list", "HEAD..@{u}")[1].split()) if followed else set()
+    found = own + listed("@{u}" if followed else "HEAD")
+    for v in found:
+        v["state"] = ("current" if v["id"] == head else "own" if v in own else "newer" if v["id"] in newer else "older")
+        v["previous"] = bool(earlier) and v["id"] == earlier[-1]
+    return found[:limit]
+
+
+def find_version(text):
+    """The version meant by "v12", "12" or the start of an id, from versions(). None when there is no such one."""
+    text = text.strip().lower()
+    for v in versions(limit=1000):
+        if text.lstrip("v") == str(v["number"]) or (len(text) >= 4 and v["id"].startswith(text)):
+            return v
+    return None
 
 
 def previous_versions():
@@ -905,9 +946,15 @@ def update_check():
     return len(lines), "\n".join(lines[:8] + ["… and %d more" % (len(lines) - 8)] * (len(lines) > 8))
 
 
-def update():
+def _quiet_say(text, part=None):
+    pass
+
+
+def update(say=_quiet_say):
     """Move to the newest version on GitHub, remembering the current one so revert() can go back.
-    Returns (changed, message). After a change, call reapply() and restart the GUI."""
+    Returns (changed, message). After a change, call reapply() and restart the GUI.
+    say(text, part) is told each step; part is how far along the whole job is, 0 to 1."""
+    say("Asking GitHub for newer versions …", 0.1)
     count, news = update_check()
     if count < 0:
         return False, news
@@ -916,33 +963,68 @@ def update():
     problem = _hand_edited()
     if problem:
         return False, problem
+    say("Getting %d newer version%s …" % (count, "s" * (count > 1)), 0.4)
     before = _git("rev-parse", "HEAD")[1]
     ok, out = _git("merge", "--ff-only", "@{u}")
     if not ok:
         return False, "Could not update: this copy has its own commits that GitHub does not.\n%s" % out.splitlines()[-1]
-    os.makedirs(OWN, exist_ok=True)
-    with open(VERSIONS, "a") as f:
-        f.write(before + "\n")
+    _remember(before)
     return True, "Updated to %s" % version()
 
 
-def revert():
+def _remember(commit):
+    os.makedirs(OWN, exist_ok=True)
+    with open(VERSIONS, "a") as f:
+        f.write(commit + "\n")
+
+
+def _may_move():
+    """Why this copy must not be put on another version, or "" when it may."""
+    problem = _hand_edited()
+    if problem:
+        return problem
+    if _git("log", "--format=%h", "@{u}..HEAD")[1]:
+        return "This copy has commits of its own that are not on GitHub. Going back would drop them; use git yourself."
+    return ""
+
+
+def revert(say=_quiet_say):
     """Go back to the version in use before the last update. Each call goes one update further back.
     Returns (changed, message). After a change, call reapply() and restart the GUI."""
     history = previous_versions()
     if not history:
         return False, "No earlier version to go back to: nothing has been updated from here yet."
-    problem = _hand_edited()
+    problem = _may_move()
     if problem:
         return False, problem
-    if _git("log", "--format=%h", "@{u}..HEAD")[1]:
-        return False, "This copy has commits of its own that are not on GitHub. Going back would drop them; use git yourself."
+    say("Going back to %s …" % (version(history[-1]) or history[-1][:7]), 0.3)
     ok, out = _git("reset", "--hard", history[-1])
     if not ok:
         return False, "Could not go back:\n%s" % out
     with open(VERSIONS, "w") as f:
         f.write("".join(h + "\n" for h in history[:-1]))
     return True, "Back on %s" % version()
+
+
+def switch_to(commit, say=_quiet_say):
+    """Put this copy on any version from versions(): roll back to an older one, or forward again.
+    The version left behind is remembered, so revert() returns to it.
+    Returns (changed, message). After a change, call reapply() and restart the GUI."""
+    problem = _may_move()
+    if problem:
+        return False, problem
+    before = _git("rev-parse", "HEAD")[1]
+    ok, target = _git("rev-parse", "--verify", "--quiet", commit + "^{commit}")
+    if not ok or not _git("merge-base", "--is-ancestor", target, "@{u}")[0]:
+        return False, "No such version on GitHub: %s. See: lazy-kali-ricer versions" % commit
+    if target == before:
+        return False, "Already on %s" % version()
+    say("Switching to %s …" % version(target), 0.3)
+    ok, out = _git("reset", "--hard", target)
+    if not ok:
+        return False, "Could not switch:\n%s" % out
+    _remember(before)
+    return True, "Now on %s" % version()
 
 
 def reapply():

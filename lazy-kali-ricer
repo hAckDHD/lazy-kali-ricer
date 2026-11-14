@@ -5,7 +5,9 @@
   lazy-kali-ricer apply           Write the configs from the saved settings (no GUI).
   lazy-kali-ricer update          Get the newest version from GitHub and apply it.
   lazy-kali-ricer revert          Go back to the version in use before the last update.
+  lazy-kali-ricer revert v12      Roll back (or forward) to that version: a number or id from `versions`.
   lazy-kali-ricer version         Show the installed version.
+  lazy-kali-ricer versions        List the versions: which one is installed, which are newer, where to go back to.
   lazy-kali-ricer debug on        Mirror the Hyprland log to ~/.cache/lazy-kali-ricer/hyprland.log.
   lazy-kali-ricer debug off       Stop mirroring.
   lazy-kali-ricer debug report    Save a shareable report (versions, settings, config errors, log tail).
@@ -33,8 +35,20 @@ elif args == ["apply"]:
     print("\n".join(core.apply(core.load())))
 elif args == ["version"]:
     print(core.version() or "unknown (not installed with git)")
-elif args in (["update"], ["revert"]):
-    changed, message = core.update() if args == ["update"] else core.revert()
+elif args == ["versions"]:
+    marks = {"current": "*  installed", "newer": "^  newer", "own": "+  not on GitHub", "older": ""}
+    for v in core.versions():
+        print("%-22s v%-4d %s  %s  %s" % (marks[v["state"]] or ("<  before last update" if v["previous"] else ""),
+                                          v["number"], v["short"], v["date"], v["what"]))
+    if not core.version():
+        print("unknown (not installed with git)")
+elif args in (["update"], ["revert"]) or (len(args) == 2 and args[0] == "revert"):
+    say = lambda text, part=None: print(text)
+    if len(args) == 2:
+        wanted = core.find_version(args[1])
+        changed, message = core.switch_to(wanted["id"], say) if wanted else (False, "No version %s. See: lazy-kali-ricer versions" % args[1])
+    else:
+        changed, message = core.update(say) if args == ["update"] else core.revert(say)
     print(message)
     if changed:
         print(core.reapply())

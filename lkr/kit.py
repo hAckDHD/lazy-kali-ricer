@@ -346,9 +346,18 @@ def read_tools(folder):
     return tools
 
 
-def install_tools(folder):
-    """Install everything in the kit's tools.txt. Already-installed entries are skipped. Returns log lines."""
+def install_tools(folder, say=lambda text, part=None: None):
+    """Install everything in the kit's tools.txt. Already-installed entries are skipped. Returns log lines.
+    say(text, part) is told each step; part is how far along the whole job is, 0 to 1."""
     tools, log = read_tools(folder), []
+    total, at = 2 + len(tools["pipx"]) + len(tools["git"]), 0  # packages, each pipx tool, each repository, scripts
+
+    def step(text):
+        nonlocal at
+        say(text, at / total)
+        at += 1
+
+    step("Packages: %d listed … (enter your password in the dialog if it asks)" % len(tools["apt"]))
     if tools["apt"]:
         state = core.package_state(tools["apt"])
         want = [p for p in tools["apt"] if state[p] == "available"]
@@ -362,6 +371,7 @@ def install_tools(folder):
         if not shutil.which("pipx"):
             log.append("pipx is not installed: add `apt pipx` to tools.txt.")
             break
+        step("pipx: %s …" % name)
         done = subprocess.run(["pipx", "install", name], capture_output=True, text=True)
         if done.returncode and "already" not in done.stdout + done.stderr:
             log.append("pipx could not install %s" % name)
@@ -370,6 +380,7 @@ def install_tools(folder):
         dest = os.path.join(TOOLS_DIR, os.path.basename(url.rstrip("/")).removesuffix(".git"))
         if os.path.exists(dest):
             continue
+        step("Cloning %s …" % os.path.basename(dest))
         os.makedirs(TOOLS_DIR, exist_ok=True)
         done = subprocess.run(["git", "clone", "--depth", "1", "--", url, dest], capture_output=True,
                               env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))  # never hang on a password prompt
@@ -378,6 +389,7 @@ def install_tools(folder):
             log.append("Could not clone %s" % url)
     if tools["git"]:
         log.append("Cloned %d new repositories into %s" % (cloned, TOOLS_DIR.replace(core.HOME, "~")))
+    say("Your scripts …", (total - 1) / total)
     copied, kept, _big = restore_scripts(folder)
     if copied or kept:
         log.append("Scripts: %d files put in ~/tools%s." % (copied, ", %d already there and left alone" % kept if kept else ""))
