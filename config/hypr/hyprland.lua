@@ -16,7 +16,56 @@ local menus  = "~/.config/hypr/scripts/menus.py"
 -- tab has saved a layout. Anything more special goes in local.lua (end of this file).
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 -- Layout from the Displays tab of the GUI (empty until you arrange screens there).
-for _, m in ipairs(S.monitors or {}) do hl.monitor(m) end
+-- The saved positions assume every screen in the layout is plugged in. With some missing
+-- (laptop off its dock, a monitor unplugged) the rest would keep their old spots: a lone
+-- laptop screen parked at 7680x0, or a hole the mouse cannot cross. Flameshot also crops and
+-- stretches its capture when the layout does not start at 0x0. So the layout is closed up
+-- around the screens that are really there, and again whenever one is plugged in or removed.
+-- With everything connected, the positions come out exactly as saved.
+local function close_gaps(items, pos, len)
+    table.sort(items, function(a, b) return a[pos] < b[pos] end)
+    local shift, edge = items[1] and items[1][pos] or 0, 0
+    for _, it in ipairs(items) do
+        local at = it[pos] - shift
+        if at > edge then shift, at = shift + at - edge, edge end   -- empty band before this screen
+        it[pos], edge = at, math.max(edge, at + it[len])
+    end
+end
+
+local function place_monitors(gone)
+    local live, any = {}, false
+    for _, m in ipairs(hl.get_monitors()) do
+        if m.name ~= gone then live[m.name], any = m, true end
+    end
+    local here = {}
+    for _, r in ipairs(S.monitors or {}) do
+        local m = live[r.output]
+        local x, y = tostring(r.position):match("^(-?%d+)x(-?%d+)$")
+        -- Before Hyprland has listed any screen (first parse at login), count them all as present.
+        if x and (m or not any) then
+            local w, h = tostring(r.mode):match("^(%d+)x(%d+)")
+            w, h = tonumber(w) or (m and m.width) or 0, tonumber(h) or (m and m.height) or 0
+            if (r.transform or 0) % 2 == 1 then w, h = h, w end   -- rotated a quarter turn
+            local scale = r.scale or 1
+            here[#here + 1] = { rule = r, x = tonumber(x), y = tonumber(y),
+                                w = math.floor(w / scale + 0.5), h = math.floor(h / scale + 0.5) }
+        end
+    end
+    close_gaps(here, "x", "w")
+    close_gaps(here, "y", "h")
+    local at = {}
+    for _, it in ipairs(here) do at[it.rule] = it.x .. "x" .. it.y end
+    for _, r in ipairs(S.monitors or {}) do
+        local rule = {}
+        for k, v in pairs(r) do rule[k] = v end
+        rule.position = at[r] or r.position
+        hl.monitor(rule)
+    end
+end
+
+place_monitors()
+hl.on("monitor.added",   function() place_monitors() end)
+hl.on("monitor.removed", function(m) place_monitors(type(m) == "userdata" and m.name or nil) end)
 
 --------------------------------------
 ---- HARDWARE DETECTION (portable) ----
