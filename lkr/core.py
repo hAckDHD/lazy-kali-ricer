@@ -800,8 +800,14 @@ def uninstall_items():
             items.append(dict(kind="path", target=_launcher(key), label="Delete the %s launcher" % name, on=True))
     if os.path.isdir(os.path.join(HOME, ".cache", "cliphist")):
         items.append(dict(kind="clipboard", target="", label="Wipe clipboard history", on=False))
-    from . import kit
+    from . import burp, kit
 
+    if burp.our_launcher():
+        items.append(dict(kind="path", target=burp.LAUNCHER, on=True,
+                          label="Delete the Burp Suite menu entry that sets its proxy port  (Kali's own one comes back)"))
+    if burp.firefox_has_foxyproxy():
+        items.append(dict(kind="firefox", target=burp.FIREFOX_POLICY, on=True,
+                          label="Stop installing FoxyProxy into Firefox  (edits %s; asks for your password)" % burp.FIREFOX_POLICY))
     for browser, path in kit.policy_files():
         items.append(dict(kind="policy", target=path, on=True,
                           label="Stop installing extensions into %s  (delete %s; asks for your password)" % (browser, path)))
@@ -831,6 +837,11 @@ def uninstall(items):
     if policies:
         ok = _root("rm -f %s" % shlex.join(policies))
         log.append(("Removed extension lists: %s" if ok else "Extension lists NOT removed (cancelled or failed): %s") % " ".join(policies))
+    if any(i["kind"] == "firefox" for i in items):
+        from . import burp
+
+        log.append("Firefox: FoxyProxy taken off its policy file." if burp.remove_firefox()
+                   else "Firefox: policy file NOT changed (cancelled or failed).")
     for item in sorted(items, key=lambda i: i["target"] == OWN):  # settings folder last: it holds the manifest
         kind, target = item["kind"], item["target"]
         if kind == "file":
@@ -844,7 +855,7 @@ def uninstall(items):
             shutil.rmtree(target) if os.path.isdir(target) and not os.path.islink(target) else os.remove(target)
         elif kind == "clipboard":
             wipe_clipboard()
-        if kind not in ("package", "policy"):
+        if kind not in ("package", "policy", "firefox"):
             log.append("Done: %s" % item["label"])
     if managed_gone and os.path.isfile(MANIFEST):  # some files kept: remember only those
         kept = {p: b for p, b in _manifest().items() if p not in managed_gone}

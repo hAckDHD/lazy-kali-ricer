@@ -13,7 +13,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
-from . import core, kit, sync  # noqa: E402
+from . import burp, core, kit, sync  # noqa: E402
 
 NONE, CUSTOM_CMD = "", "__custom__"
 
@@ -687,7 +687,7 @@ class Ricer(Gtk.Window):
 
         self.head(page, "Browsers")
         self.note(page, "Extensions and bookmarks go to the ticked browsers. Brave and Chromium are in the Get apps tab. "
-                        "Firefox and Tor Browser are not covered here.")
+                        "Firefox and Tor Browser are not covered here, except for FoxyProxy below.")
         row, found = Gtk.Box(spacing=14), kit.installed_browsers()
         self.kit_browsers = []  # (checkbox, name)
         for name in kit.BROWSERS:
@@ -706,6 +706,26 @@ class Ricer(Gtk.Window):
         self.ext_button = Gtk.Button(label="Set extensions in ticked browsers", halign=Gtk.Align.START)
         self.ext_button.connect("clicked", self.on_kit_extensions)
         page.pack_start(self.ext_button, False, False, 0)
+
+        self.head(page, "Burp Suite")
+        self.note(page, "Pick the port Burp's proxy listens on. Set up makes Burp use it when started from the menu, "
+                        "adds FoxyProxy to the browsers ticked above (and Firefox, ticked here), and writes a FoxyProxy "
+                        "settings file with Burp on that port. You import that file in FoxyProxy once per browser; "
+                        "after that its menu switches Burp on and off.")
+        row = Gtk.Box(spacing=10)
+        row.pack_start(Gtk.Label(label="Proxy port", xalign=0), False, False, 0)
+        self.burp_port = Gtk.SpinButton.new_with_range(1024, 65535, 1)
+        self.burp_port.set_value(burp.port(self.s))
+        self.burp_port.set_tooltip_text("1024 to 65535. Burp's own default is 8080.")
+        row.pack_start(self.burp_port, False, False, 0)
+        has_firefox = burp.FIREFOX in burp.browsers()
+        self.burp_firefox = Gtk.CheckButton(label="Firefox" if has_firefox else "Firefox  — not installed",
+                                            active=has_firefox, sensitive=has_firefox)
+        row.pack_start(self.burp_firefox, False, False, 0)
+        self.burp_button = Gtk.Button(label="Set up Burp and FoxyProxy")
+        self.burp_button.connect("clicked", self.on_burp)
+        row.pack_start(self.burp_button, False, False, 0)
+        page.pack_start(row, False, False, 0)
 
         self.head(page, "Bookmarks")
         self.note(page, "Import replaces the bookmarks of the ticked browsers with the file (close the browser first). "
@@ -940,6 +960,23 @@ class Ricer(Gtk.Window):
             self.fill_kit()
 
         self.background(button, lambda: kit.set_extensions(browsers, ids), done)
+
+    def on_burp(self, button):
+        self.burp_port.update()  # take a number that was typed but not confirmed with Enter
+        number = self.burp_port.get_value_as_int()
+        names = self.ticked_browsers() + [burp.FIREFOX] * self.burp_firefox.get_active()
+        self.s["burp_port"] = number
+        burp.set_port(number)
+
+        def done(result):
+            ok, log = result
+            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(burp.IMPORT, -1)
+            log.append("The file's path is on your clipboard: paste it in the file dialog (Ctrl+L, Ctrl+V).")
+            self.status.set_text("\n".join(log))
+            self.fill_kit()
+            self.list_uninstall()
+
+        self.background(button, lambda: burp.setup(number, names), done)
 
     def on_kit_import(self, _button):
         path, browsers = self.marks_file.get_filename(), self.ticked_browsers()

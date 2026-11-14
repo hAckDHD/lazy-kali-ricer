@@ -83,7 +83,7 @@ dialog, also when you started it from a terminal.
 | **Displays** | Drag your screens into place; they snap together. Pick a resolution per screen. Identify shows each screen's number on the screen itself. |
 | **Shortcuts** | Your own keyboard shortcuts: press the keys, type the command. They join the Super+K list. |
 | **Get apps** | Common programs with their icons, grouped by job: terminals, browsers, file managers, code editors, notes, screenshots and recording, chat, everyday apps, wordlists. Tick, install, and they appear in the Apps tab. See [What Get apps installs](#what-get-apps-installs). |
-| **Browsers & tools** | Your kit: tool list, your own scripts, and extensions and bookmarks for Brave, Chromium and Chrome. Build it from this system, keep it on GitHub, put it back after a reinstall. See [Your kit](#your-kit). |
+| **Browsers & tools** | Your kit: tool list, your own scripts, and extensions and bookmarks for Brave, Chromium and Chrome. Build it from this system, keep it on GitHub, put it back after a reinstall. See [Your kit](#your-kit). Also sets up Burp Suite and FoxyProxy on a proxy port you pick: see [Burp Suite and FoxyProxy](#burp-suite-and-foxyproxy). |
 | **Sync devices** | Bring two of your own devices in line over Tailscale: shortcuts, zsh files, tools, browser extensions. One is the master, or merge both. See [Sync devices](#sync-devices). |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
@@ -168,7 +168,38 @@ Putting it back, after a reinstall or on another machine:
   short sample form, or a `Bookmarks` file copied from any Chromium-family browser. Close the
   browser first. The previous bookmarks stay beside the new ones as `Bookmarks.bak-<time>`.
 
-Brave, Chromium and Google Chrome are covered, first profile only. Firefox and Tor Browser are not.
+Brave, Chromium and Google Chrome are covered, first profile only. Firefox and Tor Browser are not,
+except for FoxyProxy below, which Firefox gets too.
+
+#### Burp Suite and FoxyProxy
+
+Pick a **proxy port** (1024 to 65535; Burp's own default is 8080) and press **Set up Burp and
+FoxyProxy**. It does three things:
+
+- **Burp.** Writes `~/.config/lazy-kali-ricer/burp/burp-project.json` with one proxy listener on
+  `127.0.0.1:<port>`, and a menu entry that starts Burp with it. Start Burp from the menu and it
+  listens on your port; restart it if it was open. From a terminal, the plain `burpsuite` command
+  still uses Burp's default: run `burpsuite --config-file=~/.config/lazy-kali-ricer/burp/burp-project.json`.
+- **FoxyProxy in your browsers.** Adds FoxyProxy to the ticked browsers, and to Firefox when its box
+  is ticked. The browser installs it at its next start. For Brave, Chromium and Chrome it joins the
+  extension list above (what is already listed stays). Firefox gets `/etc/firefox/policies/policies.json`,
+  which starts as a copy of the policy file Kali ships, so Kali's home page and defaults stay as
+  they are. Asks for your password.
+- **The FoxyProxy settings file.** Writes `~/.config/lazy-kali-ricer/burp/foxyproxy-burp.json`: one
+  proxy named Burp, `127.0.0.1:<port>`, switched off.
+
+One step is yours, once per browser: **FoxyProxy > Options > Import**, choose that file (its path
+is on your clipboard after Set up), then **Save**. Import replaces the proxies FoxyProxy already
+holds. After that FoxyProxy's menu sends the browser through Burp and back off again.
+
+Why an import and not a fully pre-set FoxyProxy: settings handed to FoxyProxy by policy are locked,
+and that includes the on/off choice in its menu. A proxy you cannot switch off is no use for testing.
+
+Changed the port? Press Set up again, restart Burp, and import the file again.
+
+For HTTPS sites the browser also has to trust Burp's certificate. That part is not automated:
+with Burp running and FoxyProxy set to Burp, open `http://burpsuite`, download the CA certificate
+and import it in the browser's certificate settings.
 
 #### Keep the kit in a private repository
 
@@ -283,6 +314,8 @@ The GUI shows what it found at the bottom of the window.
 ```
 lazy-kali-ricer                 open the GUI
 lazy-kali-ricer apply           write the configs from the saved settings
+lazy-kali-ricer burp            set up Burp Suite and FoxyProxy on the saved proxy port
+lazy-kali-ricer burp 8081       the same, on that port; the port is remembered
 lazy-kali-ricer update          get the newest version from GitHub and apply it
 lazy-kali-ricer revert          go back to the version in use before the last update
 lazy-kali-ricer revert v12      roll back (or forward) to that version
@@ -332,6 +365,8 @@ list of everything it would undo, and you decide line by line:
 - clipboard history (unticked by default);
 - each package `install.sh`, the Get apps tab or your `tools.txt` added (unticked by default; asks for your password);
 - the extension list given to each browser (asks for your password);
+- the Burp Suite menu entry that sets its proxy port, and FoxyProxy on Firefox's policy file
+  (asks for your password; the file is deleted when nothing else is in it);
 - the Amazon Music and YouTube Music launchers.
 
 Not undone: imported bookmarks (rename `Bookmarks.bak-<time>` back yourself), scripts and
@@ -380,6 +415,8 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `lkr/core.py` | Themes, app detection, config rendering, debug report |
 | `lkr/gui.py` | The GTK window |
 | `lkr/kit.py` | Browser extensions, bookmarks, tool list |
+| `lkr/burp.py` | Burp Suite proxy port, FoxyProxy in your browsers |
+| `~/.config/lazy-kali-ricer/burp/` | `burp-project.json` for Burp, `foxyproxy-burp.json` to import in FoxyProxy |
 | `lkr/sync.py` | Sync between your devices over Tailscale |
 | `kit-sample/` | Templates for your kit folder |
 | `~/lazy-kali-kit/` | Your kit: `tools.txt`, `bookmarks.json`, `extensions.txt`, `tools/` |
