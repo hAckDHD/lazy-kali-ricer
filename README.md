@@ -70,6 +70,16 @@ cd lazy-kali-ricer
 `~/.local/bin`, and opens the GUI. Nothing in `~/.config` changes until you press Apply.
 Any config file that was already there is moved to `<name>.bak-<timestamp>` first.
 
+The packages are listed in [`packages.txt`](packages.txt). Besides the desktop they cover screen
+sharing (the Hyprland portal and PipeWire, for Discord, browsers and OBS) and fonts for every
+script and emoji (Noto), so chat apps show text instead of empty boxes. Installed with an older
+version? **Get apps → Install missing desktop packages** adds what your setup lacks.
+
+**Screen-share previews:** when an app asks to share the screen, the picker shows a live picture of
+each screen and window (and a Region button) instead of Hyprland's list of names. It is
+`~/.config/hypr/scripts/share-picker.py`, set in `~/.config/hypr/xdph.conf`; an older setup gets it
+with the next Apply or update.
+
 Needs a Hyprland build with Lua config support (Kali's `hyprland` package has it).
 
 Whenever the GUI needs your password (installing apps, setting browser extensions) it asks in a
@@ -449,7 +459,7 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | Super+O | Float / un-float the window |
 | Super+T | Tighten / loosen gaps |
 | Super+Shift+W | Next wallpaper (when rotation is on) |
-| Super+W | Close window |
+| Super+W | Close window; quits the app if it would stay running in the background (tray) |
 | Super+L | Lock |
 
 ## Where things live

@@ -6,13 +6,17 @@
                               is minimized, brings it back to the current workspace.
   winctl.py switch-minimized  Same menu, minimized windows only.
   winctl.py minimize          Send the active window to special:minimized.
+  winctl.py close             Close the active window. If that was the app's last window and the app
+                              stays running in the background (tray), quit it too.
   winctl.py count             Waybar block: how many windows are minimized (JSON).
 """
 import glob
 import json
 import os
+import signal
 import subprocess
 import sys
+import time
 
 MIN_WS = "special:minimized"
 CACHE = os.path.expanduser("~/.cache/winctl-icons.json")
@@ -44,6 +48,25 @@ def clients():
 
 def minimized():
     return [c for c in clients() if c["workspace"]["name"] == MIN_WS]
+
+
+def close():
+    win = json.loads(hypr("activewindow", "-j") or "{}")
+    if not win.get("address"):
+        return
+    dispatch("hl.dsp.window.close()")
+    for _ in range(20):  # give it 2 s; it may ask about unsaved work and stay open
+        time.sleep(0.1)
+        left = clients()
+        if all(c["address"] != win["address"] for c in left):
+            break
+    else:
+        return
+    if win["pid"] > 1 and all(c["pid"] != win["pid"] for c in left):
+        try:
+            os.kill(win["pid"], signal.SIGTERM)
+        except OSError:  # already gone
+            pass
 
 
 def refresh_bar():
@@ -174,6 +197,8 @@ def main():
         switch()
     elif cmd == "switch-minimized":
         switch(only_minimized=True)
+    elif cmd == "close":
+        close()
     elif cmd == "minimize":
         dispatch('hl.dsp.window.move({ workspace = "%s", follow = false })' % MIN_WS)
         refresh_bar()

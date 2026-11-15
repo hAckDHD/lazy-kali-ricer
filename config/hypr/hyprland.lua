@@ -191,6 +191,15 @@ hl.window_rule({
     pin              = true,
 })
 
+-- Screen-share picker with previews (scripts/share-picker.py, set in xdph.conf).
+hl.window_rule({
+    name  = "share-picker",
+    match = { class = "lkr-share-picker" },
+
+    float  = true,
+    center = true,
+})
+
 -- Bar drop-down panels (scripts/panel.py: network, bluetooth): float under the bar's right end.
 hl.window_rule({
     name  = "rice-panel",
@@ -291,8 +300,8 @@ bind("XF86MonBrightnessDown", exec("brightnessctl set 5%-"),                    
 --------------------
 ---- WINDOWS -------
 --------------------
-bind("ALT + F4",   hl.dsp.window.close(),                           "Close window")
-bind("SUPER + W",  hl.dsp.window.close(),                           "Close window")
+bind("ALT + F4",   exec(winctl .. " close"), "Close window; quits the app if it would stay running in the background")
+bind("SUPER + W",  exec(winctl .. " close"), "Close window; quits the app if it would stay running in the background")
 bind("ALT + F11",  hl.dsp.window.fullscreen({ mode = "fullscreen" }), "Fullscreen")
 bind("SUPER + Up", hl.dsp.window.fullscreen({ mode = "maximized" }),  "Maximize")
 bind("SUPER + O",         hl.dsp.window.float(), "Float / un-float window (free move and resize)")

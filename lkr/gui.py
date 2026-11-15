@@ -507,6 +507,18 @@ class Ricer(Gtk.Window):
         self.get_button.connect("clicked", self.on_get_apps)
         page.pack_start(self.get_button, False, False, 0)
 
+        self.head(page, "Desktop packages")
+        self.note(page, "What the desktop itself needs: screen sharing from Discord and browsers, and fonts for every "
+                        "script and emoji so text does not show as empty boxes. New installs get these; a setup "
+                        "from an older version can add what it lacks here.")
+        row = Gtk.Box(spacing=8)
+        self.base_button = Gtk.Button(label="Install missing desktop packages")
+        self.base_button.connect("clicked", self.on_base)
+        row.pack_start(self.base_button, False, False, 0)
+        self.base_note = Gtk.Label(xalign=0, wrap=True)
+        row.pack_start(self.base_note, False, False, 0)
+        page.pack_start(row, False, False, 0)
+
         self.head(page, "Vencord on Discord")
         self.note(page, "Vencord adds plugins and themes to the official Discord app. Discord downloads itself the "
                         "first time it opens, so: install Discord above, open it once, close it, then add Vencord. "
@@ -555,6 +567,28 @@ class Ricer(Gtk.Window):
             self.catalog.pack_start(line, False, False, 0)
         self.catalog.show_all()
         self.fill_vencord()
+        self.fill_base()
+
+    def fill_base(self):
+        missing = core.missing_base()
+        self.base_button.set_sensitive(bool(missing))
+        self.base_note.set_text("Missing: %s" % ", ".join(missing) if missing else "All installed  ✓")
+
+    def on_base(self, button):
+        packages = core.missing_base()
+        names = ", ".join(packages)
+
+        def work(say):
+            say("Installing %s … (enter your password in the dialog)" % names)
+            return core.install_packages(packages)
+
+        def done(ok):
+            self.fill_base()
+            self.status.set_text("Installed: %s. Restart open apps to see the new fonts." % names if ok
+                                 else "Install cancelled or failed: %s" % names)
+            return self.status.get_text(), not ok
+
+        self.job(button, "Installing desktop packages", work, done)
 
     def fill_vencord(self):
         vencord = core.vencord_state()

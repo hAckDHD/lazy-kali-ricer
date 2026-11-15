@@ -296,6 +296,15 @@ def package_state(packages):
     return state
 
 
+def missing_base():
+    """The desktop's own packages (packages.txt) that are not installed yet but can be: what a
+    setup from an older version lacks."""
+    with open(os.path.join(REPO, "packages.txt")) as f:
+        packages = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    state = package_state(packages)
+    return [p for p in packages if state[p] == "available"]
+
+
 def catalog_state():
     """package_state() for every catalog package."""
     return package_state([pkg for common in list(CATALOG.values()) + list(EXTRAS.values()) for _name, pkg in common])
@@ -726,6 +735,7 @@ def apply(s):
         "__LKR_ACCENT_RGB__": "%d, %d, %d" % _rgb(s["accent"]),
         "__LKR_PRIMARY__": s["primary"],
         "__LKR_ACCENT__": s["accent"],
+        "__LKR_CONFIG__": CFG,
     }
     files = []  # (destination, text, mode)
     for root, _dirs, names in os.walk(TREE):
@@ -740,6 +750,12 @@ def apply(s):
     files.append((os.path.join(CFG, "hypr", "hyprlock.conf"), hyprlock_conf(s), 0o644))
 
     log = []
+    portal = os.path.join(CFG, "hypr", "xdph.conf")  # the screen-share portal reads it only when it starts
+    try:
+        with open(portal) as f:
+            portal_was = f.read()
+    except OSError:
+        portal_was = None
     for path, text, mode in files:
         first = path not in managed
         backup = _write(path, text, mode, managed, stamp)
@@ -764,6 +780,9 @@ def apply(s):
     if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         reload_session(s)
         log.append("Reloaded Hyprland, bar, wallpaper and clipboard.")
+        if portal_was != dict((path, text) for path, text, _mode in files)[portal]:
+            _quiet("systemctl", "--user", "restart", "xdg-desktop-portal-hyprland")
+            log.append("Restarted the screen-share portal for its new settings.")
     else:
         log.append("Log in to a Hyprland session to see it.")
     return log
