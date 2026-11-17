@@ -29,6 +29,8 @@ window#waybar {
 #cpu,
 #memory,
 #custom-cputemp,
+#custom-gpuram,
+#custom-gputemp,
 #battery,
 #tray {
     background: rgba(12, 15, 18, 0.88);

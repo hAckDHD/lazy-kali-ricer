@@ -68,8 +68,9 @@ def nm_rows(*args):
     return [[f.replace("\\:", ":") for f in re.split(r"(?<!\\):", line)] for line in out.splitlines() if line]
 
 
-def bt_devices(kind):
-    return [line.split(" ", 2)[1:] for line in run("bluetoothctl", "devices", kind)[1].splitlines()
+def bt_devices(kind=None):
+    args = ("devices", kind) if kind else ("devices",)
+    return [line.split(" ", 2)[1:] for line in run("bluetoothctl", *args)[1].splitlines()
             if line.startswith("Device ")]
 
 
@@ -86,6 +87,9 @@ class Panel(Gtk.Window):
         super().__init__(title=APP_ID)
         self.mode = mode
         self.busy = False
+        self.scanning = False        # Bluetooth discovery running?
+        self.scan_proc = None        # the `bluetoothctl scan on` process kept alive while scanning
+        self.scan_timer = 0          # GLib source id that redraws found devices
         self.set_decorated(False)
         self.set_resizable(False)
         self.set_default_size(440, -1)
@@ -94,6 +98,7 @@ class Panel(Gtk.Window):
         if visual:
             self.set_visual(visual)
         self.connect("key-press-event", lambda _w, e: e.keyval == Gdk.KEY_Escape and Gtk.main_quit())
+        self.connect("destroy", lambda *_: self.stop_scan())
         self.connect("destroy", Gtk.main_quit)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, name="panel")
         self.add(self.box)
@@ -132,6 +137,61 @@ class Panel(Gtk.Window):
             row.pack_end(self.switch(state, on_toggle), False, False, 0)
         self.box.pack_start(row, False, False, 0)
 
+    def scan_header(self, title):
+        """Section header with a Scan / Stop-scan button on the right (Bluetooth)."""
+        row = Gtk.Box(spacing=10)
+        row.pack_start(label(title, "section"), True, True, 0)
+        btn = Gtk.Button(label="Stop scan" if self.scanning else "Scan")
+        btn.connect("clicked", lambda _b: self.toggle_scan())
+        row.pack_end(btn, False, False, 0)
+        self.box.pack_start(row, False, False, 0)
+
+    def toggle_scan(self):
+        self.stop_scan() if self.scanning else self.start_scan()
+        self.refresh()
+
+    def start_scan(self):
+        # Discovery lives only as long as the bluetoothctl that started it stays connected,
+        # so hold an interactive bluetoothctl open with "scan on" rather than a one-shot command.
+        if self.scanning:
+            return
+        try:
+            self.scan_proc = subprocess.Popen(["bluetoothctl"], stdin=subprocess.PIPE,
+                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+            self.scan_proc.stdin.write("scan on\n")
+            self.scan_proc.stdin.flush()
+        except OSError:
+            self.scan_proc = None
+            return
+        self.scanning = True
+        self.scan_timer = GLib.timeout_add_seconds(2, self._scan_tick)  # redraw newly found devices
+
+    def _scan_tick(self):
+        if not self.scanning:
+            return False
+        self.refresh()
+        return True
+
+    def stop_scan(self):
+        if not self.scanning:
+            return
+        self.scanning = False
+        if self.scan_timer:
+            GLib.source_remove(self.scan_timer)
+            self.scan_timer = 0
+        if self.scan_proc:
+            self.scan_proc.terminate()  # closing the connection stops discovery
+            try:
+                self.scan_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.scan_proc.kill()
+            self.scan_proc = None
+
+    def pair(self, mac):
+        # mac is a controller address (hex and colons), safe to interpolate.
+        self.act("bash", "-c", "bluetoothctl pair %s && bluetoothctl trust %s && bluetoothctl connect %s"
+                 % (mac, mac, mac))
+
     def switch(self, state, on_toggle):
         sw = Gtk.Switch(valign=Gtk.Align.CENTER)
         sw.set_active(bool(state))
@@ -153,6 +213,7 @@ class Panel(Gtk.Window):
     def build_network(self):
         self.header("  Ethernet")
         wired = [r for r in nm_rows("-f", "DEVICE,TYPE,STATE,CONNECTION", "device") if r[1] == "ethernet"]
+        wired.sort(key=lambda r: not r[2].startswith("connected"))  # connected adapters first
         for dev, _typ, state, conn in wired:
             up = state.startswith("connected")
             sw = self.switch(up, lambda want, d=dev: self.act("nmcli", "device", "connect" if want else "disconnect", d))
@@ -174,6 +235,7 @@ class Panel(Gtk.Window):
             if len(row) >= 4 and row[1] and row[1] not in seen:
                 seen.add(row[1])
                 nets.append(row[:4])
+        nets.sort(key=lambda r: r[0].strip() != "*")  # the connected network first
         if not nets:
             self.box.pack_start(label("No networks in range", "sub"), False, False, 0)
             return
@@ -226,12 +288,17 @@ class Panel(Gtk.Window):
         self.header("  Bluetooth", powered,
                     lambda want: self.act("bluetoothctl", "power", "on" if want else "off"))
         if not powered:
+            self.stop_scan()
             self.box.pack_start(label("Bluetooth is off", "off"), False, False, 0)
             return
         self.box.pack_start(Gtk.Separator(), False, False, 0)
-        self.header("Paired devices")
+
         connected = {mac for mac, _ in bt_devices("Connected")}
         paired = bt_devices("Paired")
+        paired.sort(key=lambda d: d[0] not in connected)  # connected devices first
+        paired_macs = {mac for mac, _ in paired}
+
+        self.scan_header("Paired devices")
         for mac, name in paired:
             on = mac in connected
             sw = self.switch(on, lambda want, m=mac: self.act("bluetoothctl", "connect" if want else "disconnect", m))
@@ -239,6 +306,17 @@ class Panel(Gtk.Window):
                                 False, False, 0)
         if not paired:
             self.box.pack_start(label("No paired devices", "sub"), False, False, 0)
+
+        if self.scanning:  # new devices found by the running scan, not yet paired
+            self.box.pack_start(Gtk.Separator(), False, False, 0)
+            self.header("Nearby — scanning …")
+            nearby = [(mac, name) for mac, name in bt_devices() if mac not in paired_macs]
+            for mac, name in nearby:
+                btn = Gtk.Button(label="Pair")
+                btn.connect("clicked", lambda _b, m=mac: self.pair(m))
+                self.box.pack_start(self.card(name or mac, mac, "sub", btn), False, False, 0)
+            if not nearby:
+                self.box.pack_start(label("Searching for devices …", "sub"), False, False, 0)
 
 
 def main():

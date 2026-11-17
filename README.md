@@ -97,6 +97,7 @@ dialog, also when you started it from a terminal.
 | **Sync devices** | Bring two of your own devices in line over Tailscale: shortcuts, zsh files, tools, browser extensions. One is the master, or merge both. See [Sync devices](#sync-devices). |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
 | **Wallpaper** | A solid colour, one image, or a folder of images that rotates. Also sets the lock screen. |
+| **Bar** | Pick which items show on the right of the top bar: Bluetooth, network, volume, mic, CPU, RAM, CPU and GPU temperature, GPU VRAM, battery, tray and the minimized-window count. The GPU items hide themselves on machines with no queryable GPU. |
 | **Terminal** | The banner a terminal shows when it opens: art (built-in, your own ASCII art, or a picture), which facts about the system, colours. Can also colour the terminal itself. See [Terminal banner](#terminal-banner). |
 | **Clipboard** | Clipboard history on/off, how many entries, images or text only, and the privacy options below. |
 | **Update & debug** | Every version in a list: which one is installed, which are newer, where you were before. Update, or pick a line to roll back to it. Logging switch and a button that saves a report. |

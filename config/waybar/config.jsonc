@@ -1,5 +1,7 @@
 // Waybar — dark-glass Hyprland bar, primary/accent accents.
-// Right side: Minimized windows · Bluetooth · Network · Volume · Mic · CPU · RAM · CPU temp · Battery · Tray
+// Right side: items are chosen in the ricer's Bar tab; modules-right below is filled from that.
+// Full set, in order: Minimized · Bluetooth · Network · Volume · Mic · CPU · RAM · CPU temp · VRAM · GPU temp · Battery · Tray
+// GPU pills also hide themselves on machines with no queryable GPU (integrated-only Intel/AMD).
 // Colour rule for every item: accent icon/label, primary value, red when off or disconnected.
 // Clicks show info on hover (tooltips); they don't open new app windows.
 {
@@ -13,7 +15,7 @@
 
     "modules-left":   ["hyprland/workspaces", "hyprland/window"],
     "modules-center": ["clock"],
-    "modules-right":  ["custom/minimized", "bluetooth", "network", "pulseaudio", "pulseaudio#microphone", "cpu", "memory", "custom/cputemp", "battery", "tray"],
+    "modules-right":  [__LKR_MODULES_RIGHT__],
 
     "hyprland/workspaces": {
         "all-outputs": false,          // each monitor's bar shows only its own workspaces
@@ -102,6 +104,22 @@
         "interval": 2,
         "exec": "~/.config/waybar/scripts/cpu-temp.sh",
         "format": "<span color='__LKR_ACCENT__'>\uf2c9</span> <span color='__LKR_PRIMARY__'>{}°C</span>",
+        "tooltip": false
+    },
+
+    // GPU VRAM used %, with used/total GiB in the tooltip. Hidden when no GPU is queryable.
+    "custom/gpuram": {
+        "interval": 5,
+        "exec": "~/.config/waybar/scripts/gpu.sh vram",
+        "return-type": "json",
+        "format": "<span color='__LKR_ACCENT__'>VRAM</span> <span color='__LKR_PRIMARY__'>{}%</span>"
+    },
+
+    // GPU temperature. Hidden when no GPU temperature sensor is found.
+    "custom/gputemp": {
+        "interval": 2,
+        "exec": "~/.config/waybar/scripts/gpu.sh temp",
+        "format": "<span color='__LKR_ACCENT__'>GPU \uf2c9</span> <span color='__LKR_PRIMARY__'>{}°C</span>",
         "tooltip": false
     },
 

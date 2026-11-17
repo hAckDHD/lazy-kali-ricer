@@ -115,7 +115,7 @@ class Ricer(Gtk.Window):
         for title, build in (("Apps", self.page_apps), ("Displays", self.page_displays), ("Shortcuts", self.page_shortcuts),
                              ("Get apps", self.page_get_apps), ("Browsers & tools", self.page_kit), ("Sync devices", self.page_sync),
                              ("Theme", self.page_theme), ("Wallpaper", self.page_wallpaper),
-                             ("Terminal", self.page_terminal),
+                             ("Bar", self.page_bar), ("Terminal", self.page_terminal),
                              ("Clipboard", self.page_clipboard), ("Update & debug", self.page_debug),
                              ("Uninstall", self.page_uninstall)):
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=14)
@@ -1419,6 +1419,16 @@ class Ricer(Gtk.Window):
             self.thumb.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_size(self.s["wallpaper_image"], 520, 300))
         except GLib.Error:
             self.thumb.clear()
+
+    # ----- Bar -----
+    def page_bar(self, page):
+        self.note(page, "Choose which items appear on the right side of the top bar. "
+                        "Workspaces, the window title and the clock are always shown.")
+        enabled = self.s.setdefault("bar_items", {})
+        for name, text in core.BAR_ITEMS:
+            box = Gtk.CheckButton(label=text, active=enabled.get(name, True))
+            box.connect("toggled", lambda w, n=name: enabled.__setitem__(n, w.get_active()))
+            page.pack_start(box, False, False, 0)
 
     # ----- Terminal -----
     def page_terminal(self, outer):

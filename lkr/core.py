@@ -91,6 +91,30 @@ ROLES = {
     "calculator": ("Calculator", "Calculator key", {"Calculator"}),
     "monitor": ("Task manager", "Ctrl+Shift+Esc", {"Monitor"}),
 }
+# Right-side Waybar items the user can turn on or off (Bar tab). Canonical order; all on by default.
+# Each item's own object stays defined in waybar/config.jsonc; only this list decides what is shown.
+BAR_ITEMS = [
+    ("custom/minimized", "Minimized-window count"),
+    ("bluetooth", "Bluetooth"),
+    ("network", "Network (Wi-Fi / Ethernet)"),
+    ("pulseaudio", "Volume"),
+    ("pulseaudio#microphone", "Microphone"),
+    ("cpu", "CPU usage"),
+    ("memory", "RAM usage"),
+    ("custom/cputemp", "CPU temperature"),
+    ("custom/gpuram", "GPU VRAM usage"),
+    ("custom/gputemp", "GPU temperature"),
+    ("battery", "Battery"),
+    ("tray", "System tray"),
+]
+
+
+def bar_modules_right(s):
+    """JSON array body for Waybar modules-right, honouring the Bar-tab choices."""
+    enabled = s.get("bar_items") or {}
+    return ", ".join(json.dumps(name) for name, _ in BAR_ITEMS if enabled.get(name, True))
+
+
 # Common apps per role, as (name, apt package). The package name is also the command.
 CATALOG = {
     "terminal": [("Kitty", "kitty"), ("Alacritty", "alacritty"), ("Foot", "foot"), ("QTerminal", "qterminal"),
@@ -521,7 +545,8 @@ def defaults():
     s = dict(THEMES[DEFAULT_THEME], theme=DEFAULT_THEME, wallpaper_mode="color", wallpaper_image="",
              wallpaper_dir="", wallpaper_minutes=10,
              clip_enabled=True, clip_max=200, clip_images=True, clip_skip_sensitive=False, clip_wipe_login=False,
-             keys_on_login=True, shortcuts=[], monitors=[], debug=False, kb_layout=detect_kb_layout())
+             keys_on_login=True, shortcuts=[], monitors=[], debug=False, kb_layout=detect_kb_layout(),
+             bar_items={name: True for name, _ in BAR_ITEMS})
     s["apps"] = default_apps(detect_apps())
     from . import term
 
@@ -736,6 +761,7 @@ def apply(s):
         "__LKR_PRIMARY__": s["primary"],
         "__LKR_ACCENT__": s["accent"],
         "__LKR_CONFIG__": CFG,
+        "__LKR_MODULES_RIGHT__": bar_modules_right(s),
     }
     files = []  # (destination, text, mode)
     for root, _dirs, names in os.walk(TREE):
