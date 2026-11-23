@@ -1,6 +1,6 @@
 // Waybar — dark-glass Hyprland bar, primary/accent accents.
 // Right side: items are chosen in the ricer's Bar tab; modules-right below is filled from that.
-// Full set, in order: Minimized · Bluetooth · Network · Volume · Mic · CPU · RAM · CPU temp · VRAM · GPU temp · Battery · Tray
+// Full set, in order: Minimized · Bluetooth · Network · Volume · Mic · Brightness · CPU · RAM · CPU temp · VRAM · GPU temp · Keep awake · Battery · Tray
 // GPU pills also hide themselves on machines with no queryable GPU (integrated-only Intel/AMD).
 // Colour rule for every item: accent icon/label, primary value, red when off or disconnected.
 // Clicks show info on hover (tooltips); they don't open new app windows.
@@ -88,6 +88,17 @@
         "tooltip-format": "Microphone {volume}% — click to change input"
     },
 
+    // Screen brightness (laptops). Scroll to change; hidden when there is no backlight.
+    "backlight": {
+        "format": "<span color='__LKR_ACCENT__'>{icon}</span>  <span color='__LKR_PRIMARY__'>{percent}%</span>",
+        "format-icons": ["\uf186", "\uf185"],
+        "on-scroll-up": "brightnessctl -q set 5%+",
+        "on-scroll-down": "brightnessctl -q set 5%-",
+        "on-click": "brightnessctl -q set 100%",
+        "on-click-right": "brightnessctl -q set 30%",
+        "tooltip-format": "Brightness {percent}%\nScroll to adjust · click 100% · right-click 30%"
+    },
+
     "cpu": {
         "interval": 2,
         "format": "<span color='__LKR_ACCENT__'>\uf2db</span> <span color='__LKR_PRIMARY__'>{usage}%</span>",
@@ -121,6 +132,17 @@
         "exec": "~/.config/waybar/scripts/gpu.sh temp",
         "format": "<span color='__LKR_ACCENT__'>GPU \uf2c9</span> <span color='__LKR_PRIMARY__'>{}°C</span>",
         "tooltip": false
+    },
+
+    // Keep awake (caffeine): click = on/off. Also stays awake automatically while a charger is
+    // connected, even with a full battery (right-click turns that off). See scripts/awake.sh.
+    "custom/awake": {
+        "exec": "~/.config/waybar/scripts/awake.sh",
+        "return-type": "json",
+        "interval": 5,
+        "signal": 9,
+        "on-click": "~/.config/waybar/scripts/awake.sh toggle",
+        "on-click-right": "~/.config/waybar/scripts/awake.sh auto"
     },
 
     "battery": {

@@ -26,11 +26,13 @@ window#waybar {
 #network,
 #pulseaudio,
 #pulseaudio.microphone,
+#backlight,
 #cpu,
 #memory,
 #custom-cputemp,
 #custom-gpuram,
 #custom-gputemp,
+#custom-awake,
 #battery,
 #tray {
     background: rgba(12, 15, 18, 0.88);
@@ -160,3 +162,11 @@ window#waybar.empty #window {
 
 #tray { border-color: rgba(__LKR_ACCENT_RGB__, 0.25); }
 #tray menu { color: #d7e9df; background: #0e1214; }
+
+/* Keep awake: yellow outline when forced on, accent outline when on because of the charger. */
+#custom-awake.on {
+    border-color: rgba(255, 225, 77, 0.85);
+    background: rgba(255, 225, 77, 0.10);
+    box-shadow: 0 0 10px rgba(255, 225, 77, 0.35);
+}
+#custom-awake.ac { border-color: rgba(__LKR_ACCENT_RGB__, 0.55); }

@@ -99,11 +99,13 @@ BAR_ITEMS = [
     ("network", "Network (Wi-Fi / Ethernet)"),
     ("pulseaudio", "Volume"),
     ("pulseaudio#microphone", "Microphone"),
+    ("backlight", "Screen brightness"),
     ("cpu", "CPU usage"),
     ("memory", "RAM usage"),
     ("custom/cputemp", "CPU temperature"),
     ("custom/gpuram", "GPU VRAM usage"),
     ("custom/gputemp", "GPU temperature"),
+    ("custom/awake", "Keep awake (caffeine; auto on charger)"),
     ("battery", "Battery"),
     ("tray", "System tray"),
 ]
