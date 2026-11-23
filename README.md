@@ -300,6 +300,12 @@ from it**:
   `~/.local/share/lazy-kali-ricer/file-backups/<time>/`. Keep both puts theirs next to yours as
   `<name> (from <device>).<ext>`.
 
+Files are written straight into place as they arrive, and each one is checked with SHA-256: the
+other device works out the checksum while it reads the file, this one while it writes it, and a file
+that does not match is not kept. The progress window shows the file count, how much is done, the
+speed and the time left, and has a **Stop** button. Run it again after stopping and it carries on:
+what already arrived is recognised. It checks there is enough free space first.
+
 Nothing is deleted on either device, and the other device is only read. `.git`, `node_modules`,
 `__pycache__`, `.cache` and virtualenv folders are skipped. Your folders and types are remembered.
 Both devices need this version of lazy-kali-ricer.

@@ -32,7 +32,7 @@ class Progress(Gtk.Window):
     """Small window for a job that takes a while: what it is doing now, a progress bar, and every step so far.
     It stays open when the job ends, showing the outcome, until it is closed."""
 
-    def __init__(self, parent, title, steps=None):
+    def __init__(self, parent, title, steps=None, stop=None):
         super().__init__(title=title, transient_for=parent, destroy_with_parent=True,
                          type_hint=Gdk.WindowTypeHint.DIALOG, window_position=Gtk.WindowPosition.CENTER_ON_PARENT)
         self.set_default_size(540, 320)
@@ -46,12 +46,22 @@ class Progress(Gtk.Window):
         self.log = Gtk.Label(xalign=0, yalign=0, wrap=True)
         self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.scroll.add(self.log)
-        self.close_button = Gtk.Button(label="Close", halign=Gtk.Align.END, sensitive=False)
+        self.close_button = Gtk.Button(label="Close", sensitive=False)
         self.close_button.connect("clicked", lambda *_: self.destroy())
+        self.live = Gtk.Label(xalign=0, wrap=True, selectable=True, no_show_all=True)  # speed, count, file now
+        self.live.get_style_context().add_class("dim-label")
         box.pack_start(self.now, False, False, 0)
         box.pack_start(self.bar, False, False, 0)
+        box.pack_start(self.live, False, False, 0)
         box.pack_start(self.scroll, True, True, 0)
-        box.pack_start(self.close_button, False, False, 0)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        self.stop_button = None
+        if stop:  # a threading.Event the job checks: it ends early, keeping what it finished
+            self.stop_button = Gtk.Button(label="Stop")
+            self.stop_button.connect("clicked", lambda b: (stop.set(), b.set_sensitive(False), b.set_label("Stopping …")))
+            buttons.pack_start(self.stop_button, False, False, 0)
+        buttons.pack_start(self.close_button, False, False, 0)
+        box.pack_start(buttons, False, False, 0)
         self.connect("delete-event", lambda *_: self.running)  # no closing while the job runs
         self.lines, self.part = [], None
         self.say(title + " …")
@@ -86,7 +96,20 @@ class Progress(Gtk.Window):
         else:
             self.bar.set_text("Working …")
 
+    def update(self, text, part=None):
+        """Live figures for the step running now: shown under the bar, not added to the list of steps."""
+        if not self.running:
+            return
+        self.live.set_text(text)
+        self.live.show()
+        if part is not None:
+            self.part = part
+            self.bar.set_fraction(part)
+            self.bar.set_text("%.1f%%" % (part * 100))
+
     def finish(self, text, failed=False):
+        if self.stop_button:
+            self.stop_button.hide()
         if self.lines:
             self.lines[-1] = ("✗  " if failed else "✓  ") + self.lines[-1][3:]
         self.running = False
@@ -169,11 +192,12 @@ class Ricer(Gtk.Window):
 
         threading.Thread(target=lambda: GLib.idle_add(finish, work()), daemon=True).start()
 
-    def job(self, button, title, work, done, steps=None):
+    def job(self, button, title, work, done, steps=None, stop=None):
         """Like background(), with a Progress window. work(say) runs off the GUI thread and reports its steps
-        through say(text, part=None). done(result) puts the outcome in the status line, which the window also
-        shows; when done returns (text, failed), the window shows that instead."""
-        box = self.progress = Progress(self, title, steps)
+        through say(text, part=None), or live figures for the current step with say(text, part, True).
+        done(result) puts the outcome in the status line, which the window also shows; when done returns
+        (text, failed), the window shows that instead. With stop (a threading.Event) the window has a Stop button."""
+        box = self.progress = Progress(self, title, steps, stop)
 
         def finish(result):
             self.progress = None
@@ -181,7 +205,8 @@ class Ricer(Gtk.Window):
             text, failed = shown if isinstance(shown, tuple) else (self.status.get_text(), False)
             box.finish(text, failed)
 
-        self.background(button, lambda: work(lambda text, part=None: GLib.idle_add(box.say, text, part) and None), finish)
+        self.background(button, lambda: work(lambda text, part=None, live=False:
+                                             GLib.idle_add(box.update if live else box.say, text, part) and None), finish)
 
     def say(self, text):
         """A step of a running job, from any thread: to its Progress window, or the status line when it has none."""
@@ -1352,13 +1377,15 @@ class Ricer(Gtk.Window):
                     self.status.set_text("Nothing copied.")
                     return
             else:
-                if not self.confirm("Get %d new files (%s) from %s?" % (
-                        len(new), files.size(sum(n for _r, n, _m in new)), dev["name"])):
+                if not self.confirm("Get {:,} new files ({}) from {}?\n\nEach one is checked with SHA-256 as it "
+                                    "arrives. You can stop at any time and carry on later.".format(
+                                        len(new), files.size(sum(n for _r, n, _m in new)), dev["name"])):
                     self.status.set_text("Nothing copied.")
                     return
                 choices = {}
+            stop = threading.Event()
             self.job(button, "Getting files from %s" % dev["name"],
-                     lambda say: files.fetch(dev, user, the_plan, choices, self.sync_ui, say), finished)
+                     lambda say: files.fetch(dev, user, the_plan, choices, self.sync_ui, say, stop), finished, stop=stop)
 
         self.status.set_text("Comparing the folders with %s …" % dev["name"])
         self.background(button, work, compared)

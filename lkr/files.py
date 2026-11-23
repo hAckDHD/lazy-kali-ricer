@@ -6,6 +6,7 @@ decide, one by one or all at once: keep yours, take theirs (yours is kept as a b
 (theirs lands next to yours as "<name> (from <device>).<ext>"). Nothing is deleted on either device,
 and the other device is only read."""
 import hashlib
+import io
 import json
 import os
 import re
@@ -28,6 +29,7 @@ TYPES = {"Documents": "pdf doc docx odt rtf txt md csv xls xlsx ods ppt pptx odp
 SKIP = {".git", "node_modules", "__pycache__", ".cache", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache"}
 CHOICES = {"mine": "Keep yours", "theirs": "Take theirs", "both": "Keep both"}
 VERBS = {"new": "New", "theirs": "Took theirs", "both": "Kept both", "already": "Already there"}
+SUMS = ".lkr-sha256/"  # in the transfer: the checksum that follows each file
 COMMANDS = ("files", "folders", "files-dirs", "files-list", "files-hash", "files-get")
 
 
@@ -154,16 +156,45 @@ def hashes(paths):
     return out
 
 
+class _Hashing:
+    """Reads exactly `size` bytes of a file for tar, hashing them as they go. A file that shrank while it
+    was sent is padded with zeros and marked changed, so the stream stays intact and the receiver drops it."""
+
+    def __init__(self, f, size):
+        self.f, self.left, self.sha, self.changed = f, size, hashlib.sha256(), False
+
+    def read(self, n=-1):
+        n = self.left if n < 0 else min(n, self.left)
+        data = self.f.read(n)
+        if len(data) < n:
+            self.changed, data = True, data + b"\0" * (n - len(data))
+        self.left -= n
+        self.sha.update(data)
+        return data
+
+
 def bundle(paths, out):
-    """Write those files to a binary stream as a tar.gz."""
-    with tarfile.open(fileobj=out, mode="w|gz") as tar:
+    """Write those files to a binary stream as a tar, each followed by its SHA-256 (".lkr-sha256/<path>"),
+    worked out while the file was read, so the receiver can check every file without reading any twice."""
+    with tarfile.open(fileobj=out, mode="w|", bufsize=1 << 20) as tar:
         for rel in paths:
             path = inside(rel)
             try:
-                if path and stat.S_ISREG(os.lstat(path).st_mode):
-                    tar.add(path, rel, recursive=False)
+                if not path or not stat.S_ISREG(os.lstat(path).st_mode):
+                    continue
+                f = open(path, "rb")
             except OSError:
-                pass  # gone or unreadable since it was listed: the other side reports it as not sent
+                continue  # gone or unreadable since it was listed: the receiver reports it as not sent
+            with f:
+                info = tar.gettarinfo(arcname=rel, fileobj=f)
+                src = _Hashing(f, info.size)
+                tar.addfile(info, src)
+                grew = os.fstat(f.fileno()).st_size != info.size
+            digest = ("changed" if src.changed or grew else src.sha.hexdigest()).encode()
+            mark = tarfile.TarInfo(SUMS + rel)
+            mark.size = len(digest)
+            tar.addfile(mark, io.BytesIO(digest))
+        out.flush()
 
 
 # ---------- the other device ----------
@@ -243,77 +274,193 @@ def _aside(dest, there, tmp):
     raise OSError("too many copies of %s" % name)
 
 
-def fetch(dev, user, the_plan, choices, ui, say):
+def _duration(seconds):
+    seconds = int(seconds)
+    if seconds < 60:
+        return "%d s" % seconds
+    if seconds < 3600:
+        return "%d min" % (seconds // 60)
+    return "%d h %d min" % (seconds // 3600, seconds % 3600 // 60)
+
+
+class _Meter:
+    """Files and bytes so far, the speed over the last few seconds and the time left, at most 4 times a second."""
+
+    def __init__(self, files, total, say):
+        self.files, self.total, self.say = files, max(total, 1), say
+        self.count = self.moved = 0
+        self.start = time.monotonic()
+        self.recent, self.last = [(self.start, 0)], 0.0
+
+    def speed(self):
+        now = time.monotonic()
+        self.recent = [(t, b) for t, b in self.recent if now - t <= 5] + [(now, self.moved)]
+        t0, b0 = self.recent[0]
+        return (self.moved - b0) / (now - t0) if now - t0 > 0.5 else self.moved / max(now - self.start, 0.001)
+
+    def tick(self, name, force=False):
+        now = time.monotonic()
+        if not force and now - self.last < 0.25:
+            return
+        self.last = now
+        rate = self.speed()
+        left = "about %s left" % _duration((self.total - self.moved) / rate) if rate > 0 and self.moved else "starting"
+        self.say("File %s of %s  ·  %s of %s  ·  %s/s  ·  %s\n%s" % (
+            "{:,}".format(min(self.count + 1, self.files)), "{:,}".format(self.files), size(self.moved), size(self.total),
+            size(rate), left, name), min(self.moved / self.total, 0.999), True)
+
+    def summary(self):
+        took = time.monotonic() - self.start
+        return "%s in %s (%s/s on average)" % (size(self.moved), _duration(took), size(self.moved / max(took, 0.001)))
+
+
+def _place(dest, tmp, how, there, keep):
+    """Put a received, checked file where it belongs. Returns what was done: "new", "theirs", "both" or "already"."""
+    if how == "new" and os.path.lexists(dest):
+        how = "both"  # appeared here since the comparison: do not overwrite it
+    if how == "both":
+        aside = _aside(dest, there, tmp)
+        if not aside:
+            os.unlink(tmp)
+            return "already"
+        os.rename(tmp, aside)
+    elif how == "theirs":
+        os.makedirs(os.path.dirname(keep), exist_ok=True)
+        shutil.move(dest, keep)
+        os.rename(tmp, dest)
+    else:
+        os.rename(tmp, dest)
+    return how
+
+
+def fetch(dev, user, the_plan, choices, ui, say, stop=None):
     """Copy the new files here, and for each conflict do what choices[path] says ("mine", "theirs", "both").
-    say(text, part) reports progress. Returns the lines to show."""
+    Files are written as they arrive and each is checked against the SHA-256 the other device worked out
+    while reading it; a file that does not match is not kept. say(text, part, live) reports progress;
+    setting the threading.Event `stop` ends it early. Returns the lines to show."""
     there = re.sub(r"[^A-Za-z0-9._-]", "-", dev["name"])
     get = {rel: "new" for rel, _s, _m in the_plan["new"]}
     get.update({rel: how for rel, how in choices.items() if how in ("theirs", "both")})
     sizes = {rel: n for rel, n, _m in the_plan["new"]}
     sizes.update({c["path"]: c["there"][0] for c in the_plan["conflicts"]})
-    total, moved = sum(sizes.get(rel, 0) for rel in get) or 1, 0
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    backup = os.path.join(backups(), stamp)
+    total = sum(sizes.get(rel, 0) for rel in get)
+    backup = os.path.join(backups(), time.strftime("%Y%m%d-%H%M%S"))
     done = {"new": 0, "theirs": 0, "both": 0, "already": 0}
-    failed = []
+    failed, mismatched, changed, broke, wanted_count = [], [], [], "", len(get)
+    meter = _Meter(len(get), total, say)
     if get:
-        say("Getting %d files (%s) from %s …" % (len(get), size(total), dev["name"]), 0.0)
-        stream = _ask(dev, user, "files-get", ui, sorted(get))
+        free = shutil.disk_usage(core.HOME).free
+        if free < total + (1 << 30):
+            return ["From %s:" % dev["name"], "    Failed: not enough space here: %s to get, %s free (keep 1 GB spare). "
+                    "Choose fewer folders or types." % (size(total), size(free))]
+        say("Getting %s files (%s) from %s …" % ("{:,}".format(len(get)), size(total), dev["name"]), 0.0)
+        request = tempfile.TemporaryFile()
+        request.write(json.dumps(sorted(get)).encode())
+        request.seek(0)
         try:
-            with tarfile.open(fileobj=stream, mode="r|gz") as tar:
+            ssh, finish = sync.stream(dev, user, "files-get", ui, stdin=request)
+        except OSError as e:
+            return ["From %s:" % dev["name"], "    Failed: could not start ssh: %s" % e]
+        pending = None  # (path, what to do, temporary file, its SHA-256, mode, mtime): waiting for its checksum
+
+        def drop(item):
+            if item and os.path.exists(item[2]):
+                os.unlink(item[2])
+
+        try:
+            with tarfile.open(fileobj=ssh.stdout, mode="r|*", bufsize=1 << 20) as tar:
                 for member in tar:
+                    if stop and stop.is_set():
+                        break
+                    if member.name.startswith(SUMS):
+                        sent = tar.extractfile(member).read().decode(errors="replace")
+                        if pending and pending[0] == member.name[len(SUMS):]:
+                            rel, how, tmp, digest, mode, mtime = pending
+                            pending = None
+                            if sent != digest:
+                                os.unlink(tmp)
+                                (changed if sent == "changed" else mismatched).append(rel)
+                                continue
+                            try:
+                                os.chmod(tmp, mode & 0o777 or 0o644)
+                                os.utime(tmp, (mtime, mtime))
+                                done[_place(inside(rel), tmp, how, there, os.path.join(backup, rel))] += 1
+                            except OSError as e:
+                                failed.append("%s (%s)" % (rel, e.strerror or e))
+                                os.path.exists(tmp) and os.unlink(tmp)
+                        continue
+                    drop(pending)  # a file whose checksum never came
+                    pending = None
                     how = get.pop(member.name, None)
                     if not how or not member.isfile():
                         continue
                     dest, tmp = inside(member.name), None
+                    meter.tick(member.name, force=member.size > 1 << 20)
                     try:
                         os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        sha = hashlib.sha256()
+                        src = tar.extractfile(member)
                         with tempfile.NamedTemporaryFile(dir=os.path.dirname(dest), prefix=".lkr-", delete=False) as f:
                             tmp = f.name
-                            shutil.copyfileobj(tar.extractfile(member), f, 1 << 20)
-                        os.chmod(tmp, member.mode & 0o777 or 0o644)
-                        os.utime(tmp, (member.mtime, member.mtime))
-                        if how == "new" and os.path.lexists(dest):
-                            how = "both"  # appeared here since the comparison: do not overwrite it
-                        if how == "both":
-                            aside = _aside(dest, there, tmp)
-                            if aside:
-                                os.rename(tmp, aside)
-                            else:
-                                os.unlink(tmp)
-                                how = "already"
-                        elif how == "theirs":
-                            keep = os.path.join(backup, member.name)
-                            os.makedirs(os.path.dirname(keep), exist_ok=True)
-                            shutil.move(dest, keep)
-                            os.rename(tmp, dest)
-                        else:
-                            os.rename(tmp, dest)
-                        done[how] += 1
+                            for chunk in iter(lambda: src.read(1 << 20), b""):
+                                f.write(chunk)
+                                sha.update(chunk)
+                                meter.moved += len(chunk)
+                                meter.tick(member.name)
+                                if stop and stop.is_set():
+                                    raise InterruptedError
+                        pending = (member.name, how, tmp, sha.hexdigest(), member.mode, member.mtime)
+                    except InterruptedError:
+                        drop((None, None, tmp))
+                        break
                     except OSError as e:
                         failed.append("%s (%s)" % (member.name, e.strerror or e))
-                        if tmp and os.path.exists(tmp):
-                            os.unlink(tmp)
-                    moved += member.size
-                    say("%s  %s" % (VERBS.get(how, "Copied"), member.name), min(moved / total, 0.99))
-        except (tarfile.TarError, EOFError) as e:
-            failed.append("the transfer broke off (%s)" % e)
+                        drop((None, None, tmp))
+                    meter.count += 1
+        except (tarfile.TarError, EOFError, OSError) as e:
+            broke = str(e)
+        finally:
+            drop(pending)
+            stopped = bool(stop and stop.is_set())
+            if stopped or broke:
+                ssh.kill()
+            ssh.stdout.close()
+            problem = finish()
+        if problem and not stopped:
+            broke = problem
+    else:
+        stopped = False
     home = lambda path: path.replace(core.HOME, "~", 1)
     kept = sum(how == "mine" for how in choices.values())
+    checked = done["new"] + done["theirs"] + done["both"] + done["already"]
     lines = ["From %s:" % dev["name"]]
-    for count, text in ((done["new"], "%d new files copied here."),
-                        (done["theirs"], "%%d replaced with theirs; yours are kept in %s." % home(backup)),
-                        (done["both"], "%%d kept both: theirs is next to yours as \"<name> (from %s).<ext>\"." % there),
-                        (done["already"], "%d kept both: their copy was already next to yours."),
-                        (kept, "%d kept yours."),
-                        (the_plan["same"], "%d already the same."),
-                        (the_plan["only_here"], "%d only on this device, left alone.")):
+    if checked:
+        lines.append("    %s %s copied, every one checked with SHA-256: %s." % (
+            "{:,}".format(checked), "file" if checked == 1 else "files", meter.summary()))
+    for count, text in ((done["new"], "%s new."),
+                        (done["theirs"], "%%s replaced with theirs; yours are kept in %s." % home(backup)),
+                        (done["both"], "%%s kept both: theirs is next to yours as \"<name> (from %s).<ext>\"." % there),
+                        (done["already"], "%s kept both: their copy was already next to yours."),
+                        (kept, "%s kept yours."),
+                        (the_plan["same"], "%s already the same."),
+                        (the_plan["only_here"], "%s only on this device, left alone.")):
         if count:
-            lines.append("    " + text % count)
+            lines.append("    " + text % "{:,}".format(count))
     if the_plan["skipped"]:
         lines.append("    %d skipped: a folder or link here has that name (%s)." % (
             len(the_plan["skipped"]), ", ".join(the_plan["skipped"][:3]) + ", …" * (len(the_plan["skipped"]) > 3)))
-    if get:
+    if mismatched:
+        lines.append("    Failed: %d did not match their checksum and were not kept (%s). Run it again to get them."
+                     % (len(mismatched), ", ".join(mismatched[:3]) + ", …" * (len(mismatched) > 3)))
+    if changed:
+        lines.append("    %d were being changed on %s while they were sent and were not kept (%s)."
+                     % (len(changed), dev["name"], ", ".join(changed[:3]) + ", …" * (len(changed) > 3)))
+    if stopped:
+        lines.append("    Stopped: %s of %s files copied. Run it again to carry on: what is already here is recognised."
+                     % ("{:,}".format(checked), "{:,}".format(wanted_count)))
+    elif broke:
+        lines.append("    Failed: the transfer broke off (%s). Run it again to carry on." % broke)
+    elif get:
         failed += ["%s (no longer on %s)" % (rel, dev["name"]) for rel in sorted(get)]
     if failed:
         lines.append("    Failed: %d not copied: %s" % (len(failed), "; ".join(failed[:5]) + "; …" * (len(failed) > 5)))
@@ -364,6 +511,17 @@ def _ask_conflicts(conflicts, there):
     return choices
 
 
+def _cli_say(text, part=None, live=False):
+    """Progress in the terminal: live lines overwrite each other, other lines stay."""
+    width = shutil.get_terminal_size().columns - 1
+    if live and sys.stderr.isatty():
+        stats, _nl, name = text.partition("\n")
+        line = "%3d%%  %s  %s" % (round((part or 0) * 100), stats, name)
+        print("\r" + line[:width].ljust(width), end="", file=sys.stderr, flush=True)
+    elif not live:
+        print(("\r" + " " * width + "\r" if sys.stderr.isatty() else "") + text, file=sys.stderr)
+
+
 def command(args):
     """`lazy-kali-ricer sync files|folders ...`, and the commands the other device runs over SSH.
     Returns False when the arguments make no sense."""
@@ -400,7 +558,9 @@ def command(args):
         try:
             the_plan = plan(dev, user, folders, types, sync.CLI)
             choices = _ask_conflicts(the_plan["conflicts"], dev["name"]) if the_plan["conflicts"] else {}
-            print("\n".join(fetch(dev, user, the_plan, choices, sync.CLI, lambda text, part=None: print(text, file=sys.stderr))))
+            lines = fetch(dev, user, the_plan, choices, sync.CLI, _cli_say)
+            _cli_say("")
+            print("\n".join(lines))
         except Trouble as e:
             sys.exit(str(e))
     else:

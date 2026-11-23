@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import types
 
@@ -249,35 +250,67 @@ def remember_user(user):
         core.save(s)
 
 
-def _remote(dev, user, command, ui, stdin=None):
-    """Run `lazy-kali-ricer sync <command>` on another device.
-    Returns (problem or "", what it printed as a binary file)."""
-    out = tempfile.TemporaryFile()
-    try:
-        ssh = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new",
-                                "%s@%s" % (user, dev["ip"]), "%s sync %s" % (REMOTE, command)],
-                               stdin=stdin or subprocess.DEVNULL, stdout=out, stderr=subprocess.PIPE, text=True)
-    except OSError as e:
-        return "Could not start ssh: %s" % e, out
-    said = []
-    for line in ssh.stderr:
+def _ssh(dev, user, command):
+    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ServerAliveInterval=15", "%s@%s" % (user, dev["ip"]), "%s sync %s" % (REMOTE, command)]
+
+
+def _listen(stderr, said, ui):
+    """Keep what the other side says on stderr; open the Tailscale sign-in page when it asks for one."""
+    for line in stderr:
         said.append(line.strip())
         url = re.search(r"https://login\.tailscale\.com/\S+", line)  # Tailscale SSH wants a fresh sign-in
         if url:
             ui.say("Tailscale asks you to confirm it is you. Your browser opens; this continues once you did.")
             ui.open(url.group())
-    code, tail = ssh.wait(), "\n".join([line for line in said if line][-3:])
-    out.seek(0)
-    name = dev["name"]
+
+
+def _explain(code, said, dev, user):
+    """"" when the command there worked, else what went wrong."""
+    tail, name = "\n".join([line for line in said if line][-3:]), dev["name"]
     if code == 255:
         return ("Could not reach %s as %s. On %s, open lazy-kali-ricer, go to Sync devices and press "
                 "\"Let my other devices reach this one\". If your user name is different there, set it above.\n%s"
-                % (name, user, name, tail)), out
+                % (name, user, name, tail))
     if code == 127 or "No such file" in tail:
-        return "lazy-kali-ricer is not installed on %s (looked for %s)." % (name, REMOTE), out
+        return "lazy-kali-ricer is not installed on %s (looked for %s)." % (name, REMOTE)
     if code and "Open the GUI." in "\n".join(said):
-        return "%s has an older lazy-kali-ricer that cannot do this yet. Update it there first: lazy-kali-ricer update" % name, out
-    return ("%s answered with an error:\n%s" % (name, tail) if code else ""), out
+        return "%s has an older lazy-kali-ricer that cannot do this yet. Update it there first: lazy-kali-ricer update" % name
+    return "%s answered with an error:\n%s" % (name, tail) if code else ""
+
+
+def _remote(dev, user, command, ui, stdin=None):
+    """Run `lazy-kali-ricer sync <command>` on another device and wait for it.
+    Returns (problem or "", what it printed as a binary file). For small answers; big ones use stream()."""
+    out = tempfile.TemporaryFile()
+    try:
+        ssh = subprocess.Popen(_ssh(dev, user, command), stdin=stdin or subprocess.DEVNULL, stdout=out,
+                               stderr=subprocess.PIPE, text=True)
+    except OSError as e:
+        return "Could not start ssh: %s" % e, out
+    said = []
+    _listen(ssh.stderr, said, ui)
+    code = ssh.wait()
+    out.seek(0)
+    return _explain(code, said, dev, user), out
+
+
+def stream(dev, user, command, ui, stdin=None):
+    """Start `lazy-kali-ricer sync <command>` on another device; its output is read as it comes.
+    Returns (process, done) where process.stdout is the binary stream and done() waits and gives the problem or ""."""
+    ssh = subprocess.Popen(_ssh(dev, user, command), stdin=stdin or subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, text=False)
+    said = []
+    lines = io.TextIOWrapper(ssh.stderr, errors="replace")
+    listener = threading.Thread(target=_listen, args=(lines, said, ui), daemon=True)
+    listener.start()
+
+    def done():
+        code = ssh.wait()
+        listener.join(5)
+        return _explain(code, said, dev, user) if code not in (-9, -15) else ""
+
+    return ssh, done
 
 
 def _state_of(bundle):
