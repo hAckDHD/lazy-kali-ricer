@@ -13,7 +13,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
-from . import burp, core, fetch, kit, sync, term  # noqa: E402
+from . import burp, core, fetch, files, kit, sync, term  # noqa: E402
 
 NONE, CUSTOM_CMD = "", "__custom__"
 
@@ -1104,6 +1104,7 @@ class Ricer(Gtk.Window):
                         "content, each keeps its own and you are told. Tools, scripts and extensions are only ever "
                         "added. The device you sit at installs them right away; the other one lists them in its kit, "
                         "to install from its Browsers & tools tab.")
+        self.page_files(page)
         self.sync_result = Gtk.Label(xalign=0, yalign=0, wrap=True, selectable=True)
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroll.add(self.sync_result)
@@ -1136,20 +1137,29 @@ class Ricer(Gtk.Window):
 
         self.background(button, lambda: sync.allow(not self.sync_open), done)
 
-    def on_sync(self, button, mode):
+    def sync_target(self):
+        """(device, user) picked above, or None after saying what is missing."""
         dev = self.sync_found.get(self.sync_device.get_active_id() or "")
-        parts = [key for box, key in self.sync_parts if box.get_active()]
         user = self.sync_user.get_text().strip()
-        if not dev or not parts or not user:
-            self.status.set_text("Pick the other device and tick what to sync first.")
+        if not dev or not user:
+            self.status.set_text(sync.problem() or "Pick the other device first (and your user name there).")
+            return None
+        sync.remember_user(user)
+        return dev, user
+
+    def on_sync(self, button, mode):
+        target = self.sync_target()
+        parts = [key for box, key in self.sync_parts if box.get_active()]
+        if not target or not parts:
+            target and self.status.set_text("Tick what to sync first.")
             return
+        dev, user = target
         ask = {"from": "Make this device like %s?\n\nIts shortcuts and zsh files replace the ones here. "
                        "The ones here are kept as backups.",
                "to": "Make %s like this device?\n\nThe shortcuts and zsh files here replace the ones there. "
                      "The ones there are kept as backups."}
         if mode in ask and not self.confirm(ask[mode] % dev["name"]):
             return
-        sync.remember_user(user)
 
         def done(result):
             lines, changed = result
@@ -1170,6 +1180,248 @@ class Ricer(Gtk.Window):
         titles = {"compare": "Comparing with %s", "from": "Copying from %s", "to": "Copying to %s", "merge": "Merging with %s"}
         steps = {"compare": 1, "from": 2, "to": 1, "merge": 3}  # how often sync.sync reports a step
         self.job(button, titles[mode] % dev["name"], lambda _say: sync.sync(dev, user, mode, parts, self.sync_ui), done, steps[mode])
+
+    # ----- Sync devices: files and folders -----
+    def page_files(self, page):
+        self.head(page, "Files and folders")
+        self.note(page, "Get files from the other device. Choose folders in your home folder (the same path on both) "
+                        "and, if you only want some, file types. Files only there are copied here. For each file both "
+                        "have with other content, you choose: keep yours, take theirs (yours is backed up) or keep "
+                        "both. Nothing is deleted, and the other device is only read.")
+        folders, types = files.saved()
+        self.files_chosen = folders
+        row = Gtk.Box(spacing=8)
+        self.files_label = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        pick = Gtk.Button(label="Choose folders …", tooltip_text="Read the folders on the other device and tick some")
+        pick.connect("clicked", self.on_pick_folders)
+        row.pack_start(self.files_label, True, True, 0)
+        row.pack_start(pick, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        row = Gtk.Box(spacing=12)
+        row.pack_start(Gtk.Label(label="File types:"), False, False, 0)
+        self.files_types, preset = [], set()
+        for label, exts in files.TYPES.items():
+            exts = exts.split()
+            on = bool(types) and set(exts) <= set(types)
+            preset |= set(exts) if on else set()
+            box = Gtk.CheckButton(label=label, active=on, tooltip_text=" ".join(exts))
+            self.files_types.append((box, exts))
+            row.pack_start(box, False, False, 0)
+        self.files_other = Gtk.Entry(placeholder_text="other: iso, kdbx …", width_chars=16,
+                                     text=" ".join(t for t in types if t not in preset),
+                                     tooltip_text="More endings, separated by spaces or commas")
+        row.pack_start(self.files_other, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        get = Gtk.Button(label="Get files from it")
+        get.connect("clicked", self.on_get_files)
+        row.pack_start(get, False, False, 0)
+        hint = Gtk.Label(label="No type ticked and Other empty: every file.", xalign=0)
+        hint.get_style_context().add_class("dim-label")
+        row.pack_start(hint, False, False, 0)
+        page.pack_start(row, False, False, 0)
+        self.show_folders()
+
+    def show_folders(self):
+        self.files_label.set_text("Folders: " + (", ".join("~/" + f for f in self.files_chosen)
+                                                 or "none chosen yet. Press Choose folders."))
+
+    def chosen_types(self):
+        exts = [t for box, group in self.files_types if box.get_active() for t in group]
+        return list(dict.fromkeys(exts + files.parse_types(self.files_other.get_text())))
+
+    def on_pick_folders(self, button):
+        target = self.sync_target()
+        if not target:
+            return
+        dev, user = target
+
+        def work():
+            try:
+                return files.remote_folders(dev, user, self.sync_ui), ""
+            except files.Trouble as e:
+                return None, str(e)
+
+        def done(result):
+            found, trouble = result
+            if trouble:
+                self.status.set_text(trouble)
+                return
+            self.status.set_text("Tick the folders to get from %s." % dev["name"])
+            chosen = self.ask_folders(dev["name"], found)
+            if chosen is not None:
+                self.files_chosen = files.clean_folders(chosen)
+                files.remember(folders=self.files_chosen)
+                self.show_folders()
+                self.status.set_text("Folders saved. Press Get files from it.")
+
+        self.status.set_text("Reading the folders on %s …" % dev["name"])
+        self.background(button, work, done)
+
+    def ask_folders(self, name, found):
+        """A tree of the folders on the other device with a box to tick on each. Returns the ticked ones, or None."""
+        ask = Gtk.Dialog(title="Folders to get from %s" % name, transient_for=self, modal=True)
+        ask.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Use these", Gtk.ResponseType.OK)
+        ask.set_default_size(480, 560)
+        box = ask.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(12)
+        box.add(Gtk.Label(label="Folders in your home folder on %s. A ticked folder brings everything inside it." % name,
+                          xalign=0, wrap=True))
+        store = Gtk.TreeStore(bool, str, str)  # ticked, shown name, path in home
+        rows, chosen = {}, set(self.files_chosen)
+        for rel in found:  # parents come before their children
+            rows[rel] = store.append(rows.get(os.path.dirname(rel)), [rel in chosen, os.path.basename(rel), rel])
+        for rel in sorted(chosen - set(found)):  # typed in before, or not there any more
+            rows[rel] = store.append(None, [True, rel + "  (not found there)" if not rel.startswith(".") else rel, rel])
+        view = Gtk.TreeView(model=store, headers_visible=False)
+        tick = Gtk.CellRendererToggle()
+        tick.connect("toggled", lambda _cell, path: store[path].__setitem__(0, not store[path][0]))
+        column = Gtk.TreeViewColumn()
+        text = Gtk.CellRendererText()
+        column.pack_start(tick, False)
+        column.pack_start(text, True)
+        column.add_attribute(tick, "active", 0)
+        column.add_attribute(text, "text", 1)
+        view.append_column(column)
+        for rel in chosen & set(rows):
+            parent = store.iter_parent(rows[rel])
+            parent and view.expand_to_path(store.get_path(parent))
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.add(view)
+        box.pack_start(scroll, True, True, 0)
+        row = Gtk.Box(spacing=8)
+        entry = Gtk.Entry(hexpand=True, placeholder_text="Another path in your home folder, e.g. .config/obsidian")
+        add = Gtk.Button(label="Add")
+
+        def added(*_):
+            rel = entry.get_text().strip().strip("/")
+            if rel.startswith("~/"):
+                rel = rel[2:]
+            if files.inside(rel) and rel not in rows:
+                rows[rel] = store.append(None, [True, rel, rel])
+                entry.set_text("")
+
+        add.connect("clicked", added)
+        entry.connect("activate", added)
+        row.pack_start(entry, True, True, 0)
+        row.pack_start(add, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        ask.show_all()
+        answer = None
+        if ask.run() == Gtk.ResponseType.OK:
+            answer = []
+            store.foreach(lambda model, _path, it: answer.append(model[it][2]) if model[it][0] else None)
+        ask.destroy()
+        return answer
+
+    def on_get_files(self, button):
+        target = self.sync_target()
+        if not target:
+            return
+        dev, user = target
+        if not self.files_chosen:
+            self.status.set_text("Choose the folders first.")
+            return
+        folders, types = list(self.files_chosen), self.chosen_types()
+        files.remember(types=types)
+
+        def work():
+            try:
+                return files.plan(dev, user, folders, types, self.sync_ui), ""
+            except (files.Trouble, OSError) as e:
+                return None, str(e)
+
+        def finished(lines):
+            self.sync_result.set_text("\n".join(lines))
+            return "\n".join(lines), any("Failed" in line for line in lines)
+
+        def compared(result):
+            the_plan, trouble = result
+            if trouble:
+                self.status.set_text(trouble)
+                return
+            new, conflicts = the_plan["new"], the_plan["conflicts"]
+            if not new and not conflicts:
+                self.sync_result.set_text("\n".join(files.fetch(dev, user, the_plan, {}, self.sync_ui, lambda *_: None)))
+                self.status.set_text("Already up to date with %s." % dev["name"])
+                return
+            if conflicts:
+                choices = self.ask_conflicts(the_plan)
+                if choices is None:
+                    self.status.set_text("Nothing copied.")
+                    return
+            else:
+                if not self.confirm("Get %d new files (%s) from %s?" % (
+                        len(new), files.size(sum(n for _r, n, _m in new)), dev["name"])):
+                    self.status.set_text("Nothing copied.")
+                    return
+                choices = {}
+            self.job(button, "Getting files from %s" % dev["name"],
+                     lambda say: files.fetch(dev, user, the_plan, choices, self.sync_ui, say), finished)
+
+        self.status.set_text("Comparing the folders with %s …" % dev["name"])
+        self.background(button, work, compared)
+
+    def ask_conflicts(self, the_plan):
+        """One row for each file both devices have with other content, each with its own choice.
+        Returns {path: "mine" | "theirs" | "both"}, or None when cancelled."""
+        conflicts, there, new = the_plan["conflicts"], the_plan["device"], the_plan["new"]
+        ask = Gtk.Dialog(title="%d files differ" % len(conflicts), transient_for=self, modal=True)
+        ask.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Get files", Gtk.ResponseType.OK)
+        ask.set_default_size(860, 520)
+        box = ask.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(12)
+        box.add(Gtk.Label(xalign=0, wrap=True, label=(
+            "%d files are on both devices with other content. Choose for each one; to start with, the newer "
+            "side wins. Take theirs keeps yours as a backup. Keep both puts theirs next to yours as "
+            "\"<name> (from %s).<ext>\".%s" % (len(conflicts), there,
+                                                "\n%d new files from %s (%s) are copied too." % (
+                                                    len(new), there, files.size(sum(n for _r, n, _m in new))) if new else ""))))
+        describe = lambda info, mark: "%s   %s%s" % (files.size(info[0]), files.when(info[1]), "   newer" if mark else "")
+        store = Gtk.ListStore(str, str, str, str, str)  # path, here, there, choice shown, choice
+        for c in conflicts:
+            side = files.newer(c)
+            store.append([c["path"], describe(c["here"], side == "mine"), describe(c["there"], side == "theirs"),
+                          files.CHOICES[side], side])
+        options = Gtk.ListStore(str, str)
+        for key, label in files.CHOICES.items():
+            options.append([label, key])
+        view = Gtk.TreeView(model=store)
+        for n, title in ((0, "File"), (1, "Here"), (2, "On " + there)):
+            cell = Gtk.CellRendererText(ellipsize=2 if n == 0 else 0)  # 2: Pango.EllipsizeMode.MIDDLE
+            column = Gtk.TreeViewColumn(title, cell, text=n)
+            column.set_resizable(True)
+            column.set_expand(n == 0)
+            view.append_column(column)
+        pick = Gtk.CellRendererCombo(model=options, text_column=0, has_entry=False, editable=True)
+
+        def picked(_cell, path, it):
+            store[path][3], store[path][4] = options[it][0], options[it][1]
+
+        pick.connect("changed", picked)
+        view.append_column(Gtk.TreeViewColumn("Do", pick, text=3))
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.add(view)
+        box.pack_start(scroll, True, True, 0)
+        row = Gtk.Box(spacing=8)
+        row.pack_start(Gtk.Label(label="All of them:"), False, False, 0)
+
+        def every(_button, key):
+            for r in store:
+                side = key if key != "newer" else ("theirs" if "newer" in r[2] else "mine")
+                r[3], r[4] = files.CHOICES[side], side
+
+        for key, label in list(files.CHOICES.items()) + [("newer", "Newer wins")]:
+            button = Gtk.Button(label=label)
+            button.connect("clicked", every, key)
+            row.pack_start(button, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        ask.show_all()
+        answer = {r[0]: r[4] for r in store} if ask.run() == Gtk.ResponseType.OK else None
+        ask.destroy()
+        return answer
 
     # ----- Theme -----
     def page_theme(self, page):

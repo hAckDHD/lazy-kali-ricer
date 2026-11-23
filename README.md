@@ -11,7 +11,7 @@ options, press **Apply**. No config files to edit.
 - **Your own shortcuts.** Press a key combination, give it a command.
 - **Get more apps.** Tick to install: terminals, browsers (Brave, Tor Browser), code editors (VS Code, VSCodium), notes, screenshot and recording tools, chat (Discord, Signal, Matrix, WhatsApp), music (Spotify, Amazon Music, YouTube Music) and more, each with its icon.
 - **Your setup back in minutes.** Your tool list, your own scripts, browser extensions and bookmarks live in a kit folder. One Build button fills it from the system you are on; two buttons keep it in a private GitHub repository.
-- **Two machines, one setup.** Sync shortcuts, zsh files, tools and browser extensions between your devices over Tailscale: pick a master, or merge both.
+- **Two machines, one setup.** Sync shortcuts, zsh files, tools and browser extensions between your devices over Tailscale: pick a master, or merge both. Get files from chosen folders too, and decide for each one that differs.
 - **Your wallpaper.** One image, a plain colour, or a folder that rotates on a timer or a key.
 - **Adapts to the machine.** Laptop or desktop, AMD or Intel CPU, AMD, NVIDIA or Intel graphics.
 - **Safe to try.** Existing configs are backed up before anything is written.
@@ -284,6 +284,26 @@ Devices with different architectures (say a laptop and an ARM board) sync fine. 
 its own packages, so one that does not exist for it is named and skipped. Compiled programs in
 `~/tools` are not copied to a device with another architecture; scripts are.
 
+#### Files and folders
+
+The same tab also gets your files from the other device. Press **Choose folders …**: it reads the
+folders in your home folder over there and shows them as a tree to tick (add hidden ones such as
+`.config/obsidian` by typing them). Tick file types if you only want some (Documents, Images, Video,
+Audio, Code, Archives, or your own endings in *Other*); tick none for every file. Then **Get files
+from it**:
+
+- Files only on the other device are copied here, with their dates.
+- Files both devices have with the same content are left alone.
+- For each file both have with other content, a window lists the two copies (size, date, which is
+  newer) and you pick **Keep yours**, **Take theirs** or **Keep both**, one by one or for all of them
+  at once (also **Newer wins**). Take theirs keeps yours in
+  `~/.local/share/lazy-kali-ricer/file-backups/<time>/`. Keep both puts theirs next to yours as
+  `<name> (from <device>).<ext>`.
+
+Nothing is deleted on either device, and the other device is only read. `.git`, `node_modules`,
+`__pycache__`, `.cache` and virtualenv folders are skipped. Your folders and types are remembered.
+Both devices need this version of lazy-kali-ricer.
+
 ### Themes
 
 `hAckDHD's theme` (neon green + purple, chasing light), `Kali Dragon`, `Synthwave`,
@@ -385,6 +405,9 @@ lazy-kali-ricer sync compare <device>  show what each device has and the other l
 lazy-kali-ricer sync from <device>     that device is the master: make this one like it
 lazy-kali-ricer sync to <device>       this device is the master: make that one like it
 lazy-kali-ricer sync merge <device>    each device gains what only the other has
+lazy-kali-ricer sync folders <device>  list the folders there you can get files from
+lazy-kali-ricer sync files <device> [folder ...] [--types pdf,jpg]
+                                       get files from there; asks about each file that differs
 ```
 
 `<device>` is its Tailscale name, or `user@name` when your user name differs there.
@@ -474,6 +497,7 @@ lines. Your home path, user name and host name are replaced. Read it before you 
 | `lkr/burp.py` | Burp Suite proxy port, FoxyProxy and Burp's certificate in your browsers |
 | `~/.config/lazy-kali-ricer/burp/` | `burp-project.json` for Burp, `foxyproxy-burp.json` to import in FoxyProxy, `burp-ca.pem` |
 | `lkr/sync.py` | Sync between your devices over Tailscale |
+| `lkr/files.py` | Files and folders from another device: compare, copy, keep yours / take theirs / keep both |
 | `lkr/term.py`, `lkr/fetch.py` | Terminal banner: art and picture rendering; the script a new terminal runs |
 | `art/` | Built-in banner art |
 | `~/.config/lazy-kali-ricer/art/` | Your own banner art |

@@ -276,7 +276,7 @@ def _remote(dev, user, command, ui, stdin=None):
     if code == 127 or "No such file" in tail:
         return "lazy-kali-ricer is not installed on %s (looked for %s)." % (name, REMOTE), out
     if code and "Open the GUI." in "\n".join(said):
-        return "%s has an older lazy-kali-ricer without sync. Update it there first." % name, out
+        return "%s has an older lazy-kali-ricer that cannot do this yet. Update it there first: lazy-kali-ricer update" % name, out
     return ("%s answered with an error:\n%s" % (name, tail) if code else ""), out
 
 
@@ -344,9 +344,25 @@ def sync(dev, user, mode, parts, ui):
 
 
 # ---------- command line ----------
+CLI = types.SimpleNamespace(say=lambda text: print(text, file=sys.stderr), open=lambda url: print(url, file=sys.stderr))
+
+
+def find(text):
+    """(device, user) for "name" or "user@name", or exit saying why not."""
+    user, _at, name = text.rpartition("@")
+    dev = next((d for d in devices() if name in (d["name"], d["ip"])), None)
+    if not dev:
+        sys.exit(problem() or "No device called %s on your tailnet. See: lazy-kali-ricer sync devices" % name)
+    return dev, user or default_user()
+
+
 def command(args):
     """`lazy-kali-ricer sync ...`. Returns False when the arguments make no sense."""
-    ui = types.SimpleNamespace(say=lambda text: print(text, file=sys.stderr), open=lambda url: print(url, file=sys.stderr))
+    from . import files
+
+    ui = CLI
+    if args[:1] and args[0] in files.COMMANDS:
+        return files.command(args)
     known = lambda text: [p for p in text.split(",") if p in PARTS]
     if args[:1] == ["export"] and len(args) <= 2:  # run by the other device, over SSH
         export(sys.stdout.buffer, known(args[1]) if len(args) == 2 else ())
@@ -363,11 +379,8 @@ def command(args):
         print(problem() or "\n".join("%-24s %s%s" % (d["name"], d["ip"], "" if d["online"] else "  offline")
                                      for d in devices()) or "No other Linux device on your tailnet.")
     elif len(args) == 2 and args[0] in ("compare", "from", "to", "merge"):
-        user, _at, name = args[1].rpartition("@")
-        dev = next((d for d in devices() if name in (d["name"], d["ip"])), None)
-        if not dev:
-            sys.exit(problem() or "No device called %s on your tailnet. See: lazy-kali-ricer sync devices" % name)
-        lines, changed = sync(dev, user or default_user(), args[0], list(PARTS), ui)
+        dev, user = find(args[1])
+        lines, changed = sync(dev, user, args[0], list(PARTS), ui)
         if changed:
             lines += core.apply(core.load())[-1:]
         print("\n".join(lines))
