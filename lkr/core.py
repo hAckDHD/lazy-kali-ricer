@@ -149,6 +149,12 @@ EXTRAS = {
     "Everyday": [("LibreOffice", "libreoffice"), ("GIMP", "gimp"), ("Thunderbird", "thunderbird"), ("KeePassXC", "keepassxc"),
                  ("qBittorrent", "qbittorrent"), ("Remmina (remote desktop)", "remmina"), ("btop", "btop"),
                  ("fastfetch", "fastfetch"), ("Timeshift (system snapshots)", "timeshift"), ("GParted", "gparted")],
+    "Reverse engineering": [("Ghidra (NSA decompiler suite)", "ghidra"), ("Cutter (Rizin GUI)", "rizin-cutter"),
+                            ("Rizin", "rizin"), ("radare2", "radare2"), ("GEF (GDB enhanced)", "gef"),
+                            ("edb-debugger", "edb-debugger"), ("JADX (Java/APK decompiler)", "jadx"),
+                            ("apktool (Android APK)", "apktool"), ("binwalk (firmware)", "binwalk"),
+                            ("wxHexEditor", "wxhexeditor"), ("YARA", "yara"), ("UPX (un)packer", "upx-ucl"),
+                            ("ltrace", "ltrace"), ("strace", "strace")],
     "Wordlists": [("SecLists", "seclists")],
 }
 # Services with no Linux app of their own: the real site in its own window, opened by a browser you have.
@@ -175,7 +181,11 @@ ICONS = {"spotify-client": "spotify-client spotify", "web:amazon-music": "amazon
          "dolphin": "system-file-manager", "pcmanfm": "system-file-manager", "thunar": "org.xfce.thunar",
          "strawberry": "strawberry multimedia-audio-player", "joplin": "joplin accessories-text-editor",
          "vesktop": "vesktop discord", "webcord": "webcord discord", "nheko": "nheko internet-chat",
-         "btop": "btop utilities-system-monitor", "fastfetch": "utilities-terminal"}
+         "btop": "btop utilities-system-monitor", "fastfetch": "utilities-terminal",
+         "ghidra": "ghidra", "rizin-cutter": "rizin-cutter cutter", "radare2": "radare2",
+         "edb-debugger": "edb", "jadx": "jadx", "wxhexeditor": "wxhexeditor",
+         "binwalk": "binwalk utilities-terminal", "gef": "gdb", "ltrace": "utilities-terminal",
+         "strace": "utilities-terminal", "apktool": "android utilities-terminal", "yara": "utilities-terminal"}
 # Apps whose maker publishes a .deb but no apt repository: package -> download address,
 # or "github:owner/repo" for the newest release there.
 DEBS = {

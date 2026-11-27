@@ -92,7 +92,7 @@ dialog, also when you started it from a terminal.
 | **Apps** | Terminal, browser, file manager, music, calculator, task manager. The lists show what is installed on your system (Flatpaks included); "Rediscover installed programs" rescans after you install something. You can type a custom command or pick None. Also the screenshot tool (Flameshot or grim + slurp), keyboard layout, and whether the shortcut list opens at login. |
 | **Displays** | Drag your screens into place; they snap together. Pick a resolution per screen. Identify shows each screen's number on the screen itself. |
 | **Shortcuts** | Your own keyboard shortcuts: press the keys, type the command. They join the Super+K list. |
-| **Get apps** | Common programs with their icons, grouped by job: terminals, browsers, file managers, code editors, notes, screenshots and recording, chat, everyday apps, wordlists. Tick, install, and they appear in the Apps tab. See [What Get apps installs](#what-get-apps-installs). |
+| **Get apps** | Common programs with their icons, grouped by job: terminals, browsers, file managers, code editors, notes, screenshots and recording, chat, everyday apps, reverse engineering, wordlists. Tick, install, and they appear in the Apps tab. Has a **Fix Ghidra issues** button for Ghidra's blank-window first run. See [What Get apps installs](#what-get-apps-installs). |
 | **Browsers & tools** | Your kit: tool list, your own scripts, and extensions and bookmarks for Brave, Chromium, Chrome and Firefox. Build it from this system, keep it on GitHub, put it back after a reinstall. See [Your kit](#your-kit). Also sets up Burp Suite and FoxyProxy on a proxy port you pick: see [Burp Suite and FoxyProxy](#burp-suite-and-foxyproxy). |
 | **Sync devices** | Bring two of your own devices in line over Tailscale: shortcuts, zsh files, tools, browser extensions. One is the master, or merge both. See [Sync devices](#sync-devices). |
 | **Theme** | A ready theme, or Custom: primary, accent and unfocused outline colours, outline thickness, outline effect and speed, corner rounding, gaps, glow. A preview shows the result. Type a name and "Save as theme" to keep your look in the list. |
@@ -118,7 +118,13 @@ Element) or the maker's `.deb` is downloaded over HTTPS (Discord, Vesktop, WebCo
 | Screenshots and recording | Flameshot, grim, slurp, Swappy, Ksnip, OBS Studio, wf-recorder |
 | Chat | Discord, Vesktop, WebCord, Signal, Element and Nheko (Matrix), WasIstLos (WhatsApp), Telegram |
 | Everyday | LibreOffice, GIMP, Thunderbird, KeePassXC, qBittorrent, Remmina, btop, fastfetch, Timeshift, GParted |
+| Reverse engineering | Ghidra, Cutter, Rizin, radare2, GEF, edb-debugger, JADX, apktool, binwalk, wxHexEditor, YARA, UPX, ltrace, strace |
 | Wordlists | SecLists (in `/usr/share/seclists`) |
+
+**Ghidra on Hyprland.** On first run Ghidra's licence dialog can come up as a blank white window you
+can't click, so it hangs before its main window ever shows. The **Fix Ghidra issues** button (bottom
+of the tab) records the agreement and silences the other start-up pop-ups so Ghidra opens straight to
+its UI. It only edits Ghidra's own per-user preferences and is safe to run any time.
 
 **Discord.** Three ways in, all of which load the real discord.com; none is a look-alike site or a relay:
 

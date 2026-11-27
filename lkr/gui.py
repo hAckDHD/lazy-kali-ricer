@@ -13,7 +13,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
-from . import burp, core, fetch, files, kit, sync, term  # noqa: E402
+from . import burp, core, fetch, files, ghidra, kit, sync, term  # noqa: E402
 
 NONE, CUSTOM_CMD = "", "__custom__"
 
@@ -559,6 +559,18 @@ class Ricer(Gtk.Window):
         self.vencord_note = Gtk.Label(xalign=0)
         row.pack_start(self.vencord_note, False, False, 0)
         page.pack_start(row, False, False, 0)
+
+        self.head(page, "Ghidra on Hyprland")
+        self.note(page, "On first run Ghidra's licence dialog can come up as a blank white window you can't click, so it "
+                        "hangs before its main window ever shows. This records the agreement and silences the other "
+                        "start-up pop-ups so Ghidra opens straight to its UI. Safe to run any time.")
+        row = Gtk.Box(spacing=8)
+        self.ghidra_button = Gtk.Button(label="Fix Ghidra issues")
+        self.ghidra_button.connect("clicked", self.on_fix_ghidra)
+        row.pack_start(self.ghidra_button, False, False, 0)
+        self.ghidra_note = Gtk.Label(xalign=0, wrap=True)
+        row.pack_start(self.ghidra_note, False, False, 0)
+        page.pack_start(row, False, False, 0)
         self.list_catalog()
 
     def app_icon(self, pkg):
@@ -593,6 +605,7 @@ class Ricer(Gtk.Window):
         self.catalog.show_all()
         self.fill_vencord()
         self.fill_base()
+        self.fill_ghidra()
 
     def fill_base(self):
         missing = core.missing_base()
@@ -641,6 +654,25 @@ class Ricer(Gtk.Window):
                                  "Vencord removed from Discord.")
 
         self.background(button, lambda: core.vencord(key), done)
+
+    def fill_ghidra(self):
+        if not ghidra.installed():
+            self.ghidra_button.set_sensitive(False)
+            self.ghidra_note.set_text("Install Ghidra above first.")
+        elif ghidra.needs_fix():
+            self.ghidra_button.set_sensitive(True)
+            self.ghidra_note.set_text("Ghidra is installed. Click to fix the blank-window first run.")
+        else:
+            self.ghidra_button.set_sensitive(True)
+            self.ghidra_note.set_text("Fixed  ✓  (click again any time it misbehaves)")
+
+    def on_fix_ghidra(self, button):
+        def done(note):
+            self.status.set_text(note)
+            self.fill_ghidra()
+
+        self.status.set_text("Fixing Ghidra …")
+        self.background(button, ghidra.fix, done)
 
     def on_get_apps(self, _button):
         packages = [pkg for box, pkg in self.wanted if box.get_active()]
